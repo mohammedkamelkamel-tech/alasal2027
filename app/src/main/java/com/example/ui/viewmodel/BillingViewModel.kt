@@ -23,6 +23,7 @@ import com.example.data.repository.LocalAccessKeyRepository
 import com.example.data.repository.KeyVerificationResult
 import com.example.service.LocalNetworkSync
 import kotlinx.coroutines.flow.*
+import androidx.room.withTransaction
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,7 +32,7 @@ import java.util.Locale
 class BillingViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
-    private val repository = BillingRepository(db.userDao(), db.billDao(), db.permissionDao(), db.meterReadingDao(), db.readingReminderDao(), db.paymentDao())
+    private val repository = BillingRepository(db, db.userDao(), db.billDao(), db.permissionDao(), db.meterReadingDao(), db.readingReminderDao(), db.paymentDao())
     private val accessKeyRepository = LocalAccessKeyRepository(application)
     private val authRepository = AuthRepository(accessKeyRepository)
     private val wifiSyncManager = com.example.service.WifiSyncManager(application, db, accessKeyRepository)
@@ -627,22 +628,16 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
             val consumption = (currentReading - effectivePrev).coerceAtLeast(0.0)
             val subtotal = consumption * effectiveUnitPrice
 
-            // المتأخرات الموجبة + الرصيد السالب الناتج عن الدفع الزائد.
-            // مثال: فاتورة 200 ودفع 1000 => رصيد للمشترك 800، فيُخصم تلقائياً من القراءة القادمة.
+            // الرصيد الدائن محفوظ على بطاقة المشترك، وليس داخل فاتورة سالبة.
             val allPreviousBills = repository.getBillsForUserOnce(userId)
             val outstanding = allPreviousBills.filter {
                 it.status !in listOf(BillStatus.PAID.name, BillStatus.CARRIED.name) && it.remainingAmount > 0.0
             }
             val arrears = outstanding.sumOf { it.remainingAmount }
-            val availableCredit = allPreviousBills
-                .filter { it.remainingAmount < 0.0 }
-                .sumOf { -it.remainingAmount }
-
-            // الرصيد الزائد يُخصم من قيمة القراءة الحالية. لا نسمح بإجمالي سالب؛
-            // إذا كان الرصيد أكبر من الفاتورة، يُرحّل الفرق كرصيد سالب للفاتورة التالية.
-            val netTotal = subtotal + arrears - availableCredit
-            val total = netTotal.coerceAtLeast(0.0)
-            val carriedCredit = (-netTotal).coerceAtLeast(0.0)
+            val availableCredit = subscriber?.creditBalance?.coerceAtLeast(0.0) ?: 0.0
+            val grossTotal = subtotal + arrears
+            val creditApplied = minOf(availableCredit, grossTotal)
+            val total = (grossTotal - creditApplied).coerceAtLeast(0.0)
             // رقم تسلسلي محفوظ دائماً، ويُقارن بأعلى رقم موجود لتفادي التكرار بعد حذف فاتورة.
             val highestStoredInvoice = repository.allBills.first()
                 .mapNotNull { it.invoiceNumber.removePrefix("#").toLongOrNull() }
@@ -668,10 +663,11 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 consumptionKwh = consumption,
                 unitPrice = effectiveUnitPrice,
                 subtotalAmount = subtotal,
-                previousDebt = arrears - availableCredit,
+                previousDebt = arrears,
+                creditApplied = creditApplied,
                 totalAmount = total,
                 paidAmount = 0.0,
-                remainingAmount = if (carriedCredit > 0.0) -carriedCredit else total,
+                remainingAmount = total,
                 issueDate = issueDate,
                 dueDate = dueDate,
                 status = if (total <= 0.0) BillStatus.PAID.name else BillStatus.UNPAID.name,
@@ -680,20 +676,20 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 readingImageUri = readingImageUri,
                 createdAt = System.currentTimeMillis()
             )
-            repository.insertBill(bill)
+            // إصدار الفاتورة، ترحيل المتأخرات، واستهلاك الرصيد الدائن عملية واحدة.
+            db.withTransaction {
+                repository.insertBill(bill)
+                outstanding.forEach { old -> repository.markBillCarriedForward(old.id) }
+                if (creditApplied > 0.0 && subscriber != null) {
+                    db.userDao().updateUser(subscriber.copy(
+                        creditBalance = (subscriber.creditBalance - creditApplied).coerceAtLeast(0.0)
+                    ))
+                }
+            }
             refreshDataNow()
-
-            // ترحيل الفواتير السابقة حتى لا تُحتسب مستحقاتها أو أرصدتها مرتين.
-            // الرصيد الزائد يُنقل إلى الفاتورة الجديدة عبر previousDebt/remainingAmount.
             outstanding.forEach { old ->
-                repository.markBillCarriedForward(old.id)
                 repository.getBillById(old.id)?.let { localNetworkSync.saveBill(it) }
             }
-            allPreviousBills.filter { it.remainingAmount < 0.0 }.forEach { old ->
-                repository.markBillCarriedForward(old.id)
-                repository.getBillById(old.id)?.let { localNetworkSync.saveBill(it) }
-            }
-            refreshDataNow()
 
             val synced = localNetworkSync.saveBill(bill)
             lastSyncError.value = if (synced) null else "تعذّرت مزامنة الفاتورة عبر شبكة Wi‑Fi المحلية، ستتم إعادة المحاولة عند توفر الشبكة"
@@ -745,53 +741,39 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
      *   المتبقي = 0  -> مدفوعة
      *   المتبقي > 0  -> مدفوعة جزئياً (يُحفظ المتبقي كمتأخرات)
      */
-    fun payBill(billId: String, amountPaid: Double, method: String = "نقدي") {
-        viewModelScope.launch {
-            if (amountPaid <= 0.0) return@launch
-            val beforeBill = repository.getBillById(billId) ?: return@launch
-            val paymentId = java.util.UUID.randomUUID().toString()
-            val dateStr = todayFormatted()
-            val collector = currentAccessKey.value
-            val collectorName = collector?.username.orEmpty()
+    private val paymentInProgress = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-            // تُحفظ الدفعة محلياً أولاً لعمل التطبيق بدون انتظار الشبكة، ثم تُرسل
-            // كعملية تحصيل مستقلة إلى جهاز الإدارة. لا نرسل فاتورة معدلة كاملة؛
-            // لأن ذلك كان سبباً رئيسياً لاختلاط/ضياع تحصيلات المحصلين.
-            val updatedBill = repository.registerPayment(billId, amountPaid, dateStr, method, collectorName)
-            if (updatedBill != null) {
-                val payment = com.example.data.model.PaymentEntity(
-                    id = paymentId,
-                    adminId = updatedBill.adminId,
-                    billId = updatedBill.id,
-                    userId = updatedBill.userId,
-                    invoiceNumber = updatedBill.invoiceNumber,
-                    userName = updatedBill.userName,
-                    amount = amountPaid,
+    fun payBill(billId: String, amountPaid: Double, method: String = "نقدي") {
+        if (amountPaid <= 0.0 || !paymentInProgress.add(billId)) return
+        viewModelScope.launch {
+            try {
+                val dateStr = todayFormatted()
+                val collector = currentAccessKey.value
+                val result = repository.recordPaymentAtomically(
+                    billId = billId,
+                    amountPaidNow = amountPaid,
+                    date = dateStr,
                     method = method,
                     collectorId = collector?.id.orEmpty(),
-                    collectorName = collectorName,
-                    paymentDate = dateStr,
-                    paymentAt = System.currentTimeMillis(),
-                    beforeRemaining = beforeBill.remainingAmount.takeIf { it > 0 } ?: beforeBill.totalAmount,
-                    afterRemaining = updatedBill.remainingAmount,
-                    // رقم إيصال مستقل ومتسلسل، لا يعاد استخدامه حتى بعد حذف التحصيلات.
-                    receiptNumber = run {
-                        val highestStoredReceipt = repository.allPayments.first()
-                            .maxOfOrNull { it.receiptNumber } ?: 0L
-                        val nextReceiptNumber = maxOf(prefs.getLong("last_receipt_number", 0L), highestStoredReceipt) + 1L
-                        check(prefs.edit().putLong("last_receipt_number", nextReceiptNumber).commit()) {
-                            "تعذر حفظ رقم إيصال التحصيل التسلسلي"
-                        }
-                        nextReceiptNumber
-                    }
-                )
-                repository.insertPayment(payment)
+                    collectorName = collector?.username.orEmpty(),
+                    paymentId = java.util.UUID.randomUUID().toString()
+                ) ?: return@launch
+
+                val (updatedBill, payment) = result
                 selectedBill.value = updatedBill
                 refreshDataNow()
-
-                // مزامنة العملية نفسها، وليس حالة فاتورة قديمة من جهاز المحصل.
                 val synced = localNetworkSync.registerPayment(payment)
-                lastSyncError.value = if (synced) null else "تعذّرت مزامنة إيصال التحصيل مع الإدارة؛ سيبقى محفوظاً على الجهاز حتى تتوفر المزامنة"
+                lastSyncError.value = if (synced) null else
+                    "تعذّرت مزامنة إيصال التحصيل مع الإدارة؛ بقي محفوظاً محلياً"
+            } catch (e: Exception) {
+                android.util.Log.e("BillingViewModel", "Payment transaction failed", e)
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    "فشل تسجيل التحصيل ولم تُحفظ العملية: ${e.message ?: "خطأ غير معروف"}",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                paymentInProgress.remove(billId)
             }
         }
     }
