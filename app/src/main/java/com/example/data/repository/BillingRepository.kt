@@ -141,29 +141,22 @@ class BillingRepository(
      * تسجيل دفعة على فاتورة مع دعم الدفع الجزئي.
      * @return الفاتورة بعد التحديث، أو null إن لم تكن موجودة.
      */
+    /** مسار توافق قديم؛ يحوّل الآن إلى المسار الذري نفسه ولا يحدّث الفاتورة وحدها. */
     suspend fun registerPayment(
         billId: String,
         amountPaidNow: Double,
         date: String,
         method: String,
         collectorName: String
-    ): BillEntity? {
-        val bill = billDao.getBillById(billId) ?: return null
-        // لا تسمح بتسجيل دفعة جديدة على فاتورة مسددة/ذات رصيد زائد.
-        if (bill.remainingAmount <= 0.0) return null
-        // السماح بالدفع الزائد: إذا دفع المشترك أكثر من المستحق، يُحفظ الفرق كرصيد
-        // سالب في remainingAmount ليُخصم تلقائياً من الفاتورة القادمة.
-        val newPaid = bill.paidAmount + amountPaidNow
-        val newRemaining = bill.totalAmount - newPaid
-        val paymentAt = System.currentTimeMillis()
-        val newStatus = when {
-            newRemaining <= 0.0 -> BillStatus.PAID.name
-            newPaid > 0.0 -> BillStatus.PARTIAL.name
-            else -> BillStatus.UNPAID.name
-        }
-        billDao.updateBillPayment(billId, newStatus, newPaid, newRemaining, date, method, collectorName, paymentAt)
-        return billDao.getBillById(billId)
-    }
+    ): BillEntity? = recordPaymentAtomically(
+        billId = billId,
+        amountPaidNow = amountPaidNow,
+        date = date,
+        method = method,
+        collectorId = "",
+        collectorName = collectorName,
+        paymentId = java.util.UUID.randomUUID().toString()
+    )?.first
 
     suspend fun insertUser(user: UserEntity): Unit = userDao.insertUser(user)
     suspend fun updateUser(user: UserEntity) = userDao.updateUser(user)
