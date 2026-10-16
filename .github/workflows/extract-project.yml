@@ -23,7 +23,8 @@ jobs:
           unzip -q /tmp/project.zip -d /tmp/project
           src="$(find /tmp/project -type d -name 'alasal-billing-v2-main' -print -quit)"
           test -n "$src"
-          rsync -a --exclude='.git/' "$src"/ ./
+          # Keep destination workflows untouched; GitHub blocks GITHUB_TOKEN pushes to workflow files without extra permission.
+          rsync -a --exclude='.git/' --exclude='.github/workflows/' "$src"/ ./
           rm -f README.md
           git status --short
 
