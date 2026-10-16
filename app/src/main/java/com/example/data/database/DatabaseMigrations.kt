@@ -210,3 +210,33 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
         if (!exists) db.execSQL("ALTER TABLE users ADD COLUMN meterSealNumber TEXT NOT NULL DEFAULT ''")
     }
 }
+
+
+/**
+ * الإصدار 14: رصيد دائن صريح للمشترك، أرقام إيصالات فريدة، وحماية الفواتير ذات التحصيلات.
+ * يعاد ترقيم الإيصالات القديمة داخل الترحيل قبل إنشاء القيد الفريد، دون حذف أي سجل.
+ */
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE users ADD COLUMN creditBalance REAL NOT NULL DEFAULT 0.0")
+
+        val cursor = db.query("SELECT id FROM payments ORDER BY paymentAt ASC, id ASC")
+        val ids = mutableListOf<String>()
+        cursor.use {
+            while (it.moveToNext()) ids.add(it.getString(0))
+        }
+        ids.forEachIndexed { index, id ->
+            db.execSQL("UPDATE payments SET receiptNumber = ? WHERE id = ?", arrayOf(index + 1L, id))
+        }
+
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_payments_receiptNumber ON payments(receiptNumber)")
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS prevent_delete_bill_with_payments
+            BEFORE DELETE ON bills
+            WHEN EXISTS (SELECT 1 FROM payments WHERE billId = OLD.id)
+            BEGIN
+                SELECT RAISE(ABORT, 'BILL_HAS_PAYMENTS');
+            END
+        """.trimIndent())
+    }
+}
