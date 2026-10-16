@@ -48,7 +48,8 @@ fun UserManagementScreen(
     onDeleteUser: (UserEntity) -> Unit,
     onUpdateUser: (UserEntity) -> Unit = {},
     // 👈 فواتير النظام: تُستخدم لحساب المستحقات لكل مشترك وتحديثها تلقائياً
-    bills: List<BillEntity> = emptyList()
+    bills: List<BillEntity> = emptyList(),
+    onAccountStatementClick: (UserEntity) -> Unit = {}
 ) {
     var showAddUserDialog by remember { mutableStateOf(false) }
     var editingUser by remember { mutableStateOf<UserEntity?>(null) }
@@ -170,6 +171,7 @@ fun UserManagementScreen(
                             isSupervisor = isSupervisor,
                             stats = statsByUser[user.id] ?: SubscriberStats(),
                             onCardClick = { detailsUser = user },
+                            onAccountStatementClick = { onAccountStatementClick(user) },
                             onStatusToggle = { onToggleUserStatus(user.id, user.isActive) },
                             onEditClick = {
                                 editingUser = user
@@ -240,6 +242,7 @@ fun UserCard(
     isSupervisor: Boolean,
     stats: SubscriberStats = SubscriberStats(),
     onCardClick: () -> Unit = {},
+    onAccountStatementClick: () -> Unit = {},
     onStatusToggle: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit
@@ -330,6 +333,16 @@ fun UserCard(
                         modifier = Modifier.testTag("user_due_${user.id}")
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onAccountStatementClick,
+                modifier = Modifier.fillMaxWidth().testTag("subscriber_statement_${user.id}")
+            ) {
+                Icon(Icons.Filled.ReceiptLong, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("كشف حساب المشترك")
             }
 
             if (canManage) {
