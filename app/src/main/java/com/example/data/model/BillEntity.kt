@@ -34,6 +34,8 @@ data class BillEntity(
     val unitPrice: Double = 170.0,
     val subtotalAmount: Double = 0.0,
     val previousDebt: Double = 0.0,
+    /** رصيد المشترك الذي خُصم من هذه الفاتورة، لمنع خصمه مرة أخرى. */
+    val creditApplied: Double = 0.0,
     val totalAmount: Double = 0.0,
     val paidAmount: Double = 0.0,
     val remainingAmount: Double = 0.0,
