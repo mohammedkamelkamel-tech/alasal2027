@@ -27,20 +27,13 @@ import java.util.Date
 import java.util.Locale
 
 private data class StatementEntry(
-    val timestamp: Long,
-    val title: String,
-    val date: String,
-    val amount: Double,
-    val detail: String,
-    val isPayment: Boolean
+    val timestamp: Long, val title: String, val date: String,
+    val amount: Double, val detail: String, val isPayment: Boolean
 )
 
 @Composable
 fun SubscriberAccountStatementScreen(
-    user: UserEntity?,
-    bills: List<BillEntity>,
-    payments: List<PaymentEntity>,
-    onBack: () -> Unit
+    user: UserEntity?, bills: List<BillEntity>, payments: List<PaymentEntity>, onBack: () -> Unit
 ) {
     val context = LocalContext.current
     if (user == null) {
@@ -53,7 +46,6 @@ fun SubscriberAccountStatementScreen(
 
     val userBills = bills.filter { it.userId == user.id }.sortedByDescending { it.createdAt }
     val userPayments = payments.filter { it.userId == user.id }.sortedByDescending { it.paymentAt }
-    // الفواتير المرحّلة لا تدخل في الرصيد؛ متبقيها نُقل إلى فاتورة أحدث.
     val currentBills = userBills.filter { it.status != BillStatus.CARRIED.name }
     val billedConsumption = currentBills.sumOf { it.subtotalAmount }
     val paidReceipts = userPayments.sumOf { it.amount }
@@ -62,43 +54,24 @@ fun SubscriberAccountStatementScreen(
 
     val entries = (userBills.map { bill ->
         StatementEntry(
-            timestamp = bill.createdAt,
-            title = "فاتورة استهلاك #${bill.invoiceNumber}",
-            date = bill.issueDate.ifBlank { bill.readingDate.ifBlank { dateText(bill.createdAt) } },
-            amount = bill.totalAmount,
-            detail = when (bill.status) {
-                BillStatus.CARRIED.name -> "مرحّلة إلى فاتورة أحدث • الاستهلاك ${bill.consumptionKwh} ك.و.س"
-                else -> "${bill.consumptionKwh} ك.و.س • مدفوع الفاتورة: ${CurrencyFormatter.riyal(bill.paidAmount)} • المتبقي: ${CurrencyFormatter.riyal(bill.remainingAmount.coerceAtLeast(0.0))}"
-            },
-            isPayment = false
+            bill.createdAt, "فاتورة استهلاك رقم ${bill.invoiceNumber}",
+            bill.issueDate.ifBlank { bill.readingDate.ifBlank { dateText(bill.createdAt) } },
+            bill.totalAmount,
+            if (bill.status == BillStatus.CARRIED.name)
+                "حالة الفاتورة: مرحّلة إلى فاتورة أحدث\nالاستهلاك: ${bill.consumptionKwh} ك.و.س"
+            else "الاستهلاك: ${bill.consumptionKwh} ك.و.س\nالمسدد من الفاتورة: ${CurrencyFormatter.riyal(bill.paidAmount)}\nالمتبقي من الفاتورة: ${CurrencyFormatter.riyal(bill.remainingAmount.coerceAtLeast(0.0))}",
+            false
         )
     } + userPayments.map { payment ->
         StatementEntry(
-            timestamp = payment.paymentAt,
-            title = "إيصال تحصيل #${payment.receiptNumber.takeIf { it > 0 } ?: "-"}",
-            date = payment.paymentDate.ifBlank { dateText(payment.paymentAt) },
-            amount = payment.amount,
-            detail = "الفاتورة #${payment.invoiceNumber} • ${payment.method} • المحصّل: ${payment.collectorName.ifBlank { "-"} }",
-            isPayment = true
+            payment.paymentAt,
+            "إيصال تحصيل رقم ${payment.receiptNumber.takeIf { it > 0 } ?: "-"}",
+            payment.paymentDate.ifBlank { dateText(payment.paymentAt) },
+            payment.amount,
+            "رقم فاتورة الاستهلاك: ${payment.invoiceNumber}\nطريقة التحصيل: ${payment.method}\nاسم المحصّل: ${payment.collectorName.ifBlank { "-"} }",
+            true
         )
     }).sortedByDescending { it.timestamp }
-
-    val shareText = buildString {
-        appendLine("كشف حساب المشترك - محطة العسل")
-        appendLine("المشترك: ${user.name}")
-        appendLine("رقم المشترك: ${user.email.ifBlank { user.userIdCode }}")
-        appendLine("الهاتف: ${user.phone}")
-        appendLine("--------------------------------")
-        appendLine("إجمالي الاستهلاك: ${CurrencyFormatter.riyal(billedConsumption)}")
-        appendLine("إجمالي التحصيلات المسجلة: ${CurrencyFormatter.riyal(paidReceipts)}")
-        appendLine("الرصيد المستحق الحالي: ${CurrencyFormatter.riyal(outstanding)}")
-        if (credit > 0.0) appendLine("رصيد دائن تقريبي: ${CurrencyFormatter.riyal(credit)}")
-        appendLine("--------------------------------")
-        entries.forEach { entry ->
-            appendLine("${entry.date} | ${entry.title} | ${if (entry.isPayment) "مدفوع" else "قيمة الفاتورة"}: ${CurrencyFormatter.riyal(entry.amount)}")
-            appendLine(entry.detail)
-        }
-    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -109,20 +82,31 @@ fun SubscriberAccountStatementScreen(
             }
             IconButton(onClick = {
                 try {
-                    val pdf = AccountStatementPdf.create(
-                        context,
-                        "كشف حساب - ${user.name}",
-                        listOf(
-                            "محطة العسل - كشف حساب المشترك",
-                            "اسم المشترك: ${user.name}",
-                            "رقم المشترك: ${user.email.ifBlank { user.userIdCode }}",
-                            "الهاتف: ${user.phone}",
-                            "إجمالي فواتير الاستهلاك: ${CurrencyFormatter.riyal(billedConsumption)}",
-                            "إجمالي التحصيلات: ${CurrencyFormatter.riyal(paidReceipts)}",
-                            "المتبقي المستحق: ${CurrencyFormatter.riyal(outstanding)}",
-                            "تفاصيل الفواتير والتحصيلات"
-                        ) + entries.map { "${it.date} | ${it.title} | ${CurrencyFormatter.riyal(it.amount)} | ${it.detail}" }
-                    )
+                    val pdfLines = buildList {
+                        add("بيانات المشترك")
+                        add("اسم المشترك: ${user.name}")
+                        add("رقم المشترك: ${user.email.ifBlank { user.userIdCode }}")
+                        add("رقم الهاتف: ${user.phone.ifBlank { "-"} }")
+                        add("")
+                        add("ملخص الحساب")
+                        add("إجمالي فواتير الاستهلاك الحالية: ${CurrencyFormatter.riyal(billedConsumption)}")
+                        add("إجمالي التحصيلات المسجلة: ${CurrencyFormatter.riyal(paidReceipts)}")
+                        add("المبلغ المستحق حاليًا: ${CurrencyFormatter.riyal(outstanding)}")
+                        if (credit > 0.0) add("رصيد دائن تقريبي: ${CurrencyFormatter.riyal(credit)}")
+                        add("عدد فواتير الاستهلاك الحالية: ${currentBills.size}")
+                        add("عدد إيصالات التحصيل: ${userPayments.size}")
+                        add("")
+                        add("تفاصيل الفواتير والتحصيلات")
+                        if (entries.isEmpty()) add("لا توجد فواتير أو تحصيلات مسجلة لهذا المشترك.")
+                        else entries.forEachIndexed { index, entry ->
+                            add("${index + 1}. ${entry.title}")
+                            add("التاريخ: ${entry.date}")
+                            add("${if (entry.isPayment) "مبلغ التحصيل" else "قيمة الفاتورة"}: ${CurrencyFormatter.riyal(entry.amount)}")
+                            entry.detail.split("\n").filter { it.isNotBlank() }.forEach { add(it) }
+                            add("")
+                        }
+                    }
+                    val pdf = AccountStatementPdf.create(context, "كشف حساب المشترك: ${user.name}", pdfLines)
                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdf)
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "application/pdf"
@@ -148,26 +132,20 @@ fun SubscriberAccountStatementScreen(
         Spacer(Modifier.height(14.dp))
         Text("سجل الفواتير والتحصيلات", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        if (entries.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("لا توجد فواتير أو تحصيلات مسجلة لهذا المشترك")
-            }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(entries) { entry ->
-                    Card {
-                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text(entry.title, Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                                Text(
-                                    (if (entry.isPayment) "+" else "") + CurrencyFormatter.riyal(entry.amount),
-                                    color = if (entry.isPayment) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Text(entry.date, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(entry.detail, style = MaterialTheme.typography.bodySmall)
+        if (entries.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("لا توجد فواتير أو تحصيلات مسجلة لهذا المشترك")
+        } else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            items(entries) { entry ->
+                Card {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(entry.title, Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                            Text((if (entry.isPayment) "+" else "") + CurrencyFormatter.riyal(entry.amount),
+                                color = if (entry.isPayment) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold)
                         }
+                        Text(entry.date, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(entry.detail, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -179,7 +157,8 @@ fun SubscriberAccountStatementScreen(
 private fun SummaryRow(label: String, value: String, emphasize: Boolean = false) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Normal)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = if (emphasize) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
+            color = if (emphasize) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
     }
 }
 
