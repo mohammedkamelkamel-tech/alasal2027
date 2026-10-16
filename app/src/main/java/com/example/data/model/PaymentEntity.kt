@@ -2,9 +2,10 @@ package com.example.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.Index
 
 /** سجل مستقل لكل عملية تحصيل؛ لا يتم استبدال عملية سابقة عند تحصيل دفعة جديدة. */
-@Entity(tableName = "payments")
+@Entity(tableName = "payments", indices = [Index(value = ["receiptNumber"], unique = true)])
 data class PaymentEntity(
     @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
     val adminId: String = "",
