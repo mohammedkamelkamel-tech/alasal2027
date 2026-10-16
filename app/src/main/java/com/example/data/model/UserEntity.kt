@@ -20,5 +20,7 @@ data class UserEntity(
     val meterNumber: String = "",
     val meterSealNumber: String = "",
     /** سعر الكيلوواط الثابت لهذا المشترك، ويُستخدم تلقائياً عند إصدار الفاتورة. */
-    val unitPrice: Double = 170.0
+    val unitPrice: Double = 170.0,
+    /** رصيد دائن محفوظ للمشترك؛ لا يُمثّل كمتبقٍ سالب داخل الفاتورة. */
+    val creditBalance: Double = 0.0
 )
