@@ -219,6 +219,7 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
 val MIGRATION_13_14 = object : Migration(13, 14) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE users ADD COLUMN creditBalance REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE bills ADD COLUMN creditApplied REAL NOT NULL DEFAULT 0.0")
 
         val cursor = db.query("SELECT id FROM payments ORDER BY paymentAt ASC, id ASC")
         val ids = mutableListOf<String>()
