@@ -1,0 +1,162 @@
+package com.example.data.repository
+
+import android.content.Context
+import com.example.data.model.AccessKey
+import com.example.data.model.PermissionCatalog
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
+import android.util.Base64
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
+
+/**
+ * تخزين مفاتيح الدخول محلياً. لا يعتمد على الإنترنت أو خدمة سحابية.
+ */
+class LocalAccessKeyRepository(context: Context) {
+    private val prefs = context.getSharedPreferences("local_access_keys", Context.MODE_PRIVATE)
+    private val securityPrefs = context.getSharedPreferences("local_app_security", Context.MODE_PRIVATE)
+    private val state = MutableStateFlow(load())
+
+    init {
+        if (!prefs.contains("keys_json")) saveAll(state.value)
+    }
+
+
+    fun isPasswordSet(): Boolean = !securityPrefs.getString("password_hash", null).isNullOrBlank()
+
+    fun setLocalPassword(password: String): Boolean {
+        if (password.length < 6) return false
+        return try {
+            val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+            val spec = PBEKeySpec(password.toCharArray(), salt, 120000, 256)
+            val hash = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            spec.clearPassword()
+            securityPrefs.edit()
+                .putString("password_salt", Base64.encodeToString(salt, Base64.NO_WRAP))
+                .putString("password_hash", Base64.encodeToString(hash, Base64.NO_WRAP))
+                .apply()
+            true
+        } catch (_: Exception) { false }
+    }
+
+    fun verifyLocalPassword(password: String): Boolean {
+        val saltText = securityPrefs.getString("password_salt", null) ?: return false
+        val expectedText = securityPrefs.getString("password_hash", null) ?: return false
+        return try {
+            val salt = Base64.decode(saltText, Base64.NO_WRAP)
+            val expected = Base64.decode(expectedText, Base64.NO_WRAP)
+            val spec = PBEKeySpec(password.toCharArray(), salt, 120000, 256)
+            val actual = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            spec.clearPassword()
+            java.security.MessageDigest.isEqual(expected, actual)
+        } catch (_: Exception) { false }
+    }
+
+    fun isBiometricEnabled(): Boolean = securityPrefs.getBoolean("biometric_enabled", false)
+    fun setBiometricEnabled(enabled: Boolean) { securityPrefs.edit().putBoolean("biometric_enabled", enabled).apply() }
+
+    private fun defaults(): List<AccessKey> = listOf(
+        // مفتاح الإدارة فقط يكون مضمّناً افتراضياً.
+        // حسابات المحصل/المحاسب/المشرف ينشئها جهاز الإدارة وتصل للأجهزة
+        // الفرعية بالمزامنة بعد التحقق من مفتاح الحساب مع الإدارة.
+        AccessKey(
+            id = "key_admin_001",
+            secretKey = "SEC-ADMIN-1234",
+            username = "مدير النظام",
+            role = "ADMIN",
+            permissions = PermissionCatalog.getDefaultAdminPermissions(),
+            active = true,
+            createdBy = "SYSTEM"
+        )
+    )
+
+    private fun load(): List<AccessKey> {
+        val raw = prefs.getString("keys_json", null) ?: return defaults()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { fromJson(arr.getJSONObject(it)) }
+        } catch (_: Exception) {
+            defaults()
+        }
+    }
+
+    private fun fromJson(o: JSONObject): AccessKey {
+        val permissions = mutableListOf<String>()
+        val p = o.optJSONArray("permissions")
+        if (p != null) for (i in 0 until p.length()) permissions += p.optString(i)
+        return AccessKey(
+            id = o.optString("id"),
+            secretKey = o.optString("secretKey"),
+            username = o.optString("username"),
+            phone = o.optString("phone"),
+            role = o.optString("role", "OPERATOR"),
+            permissions = permissions,
+            active = o.optBoolean("active", true),
+            expiresAt = if (o.isNull("expiresAt")) null else o.optLong("expiresAt"),
+            createdAt = o.optLong("createdAt", System.currentTimeMillis()),
+            createdBy = o.optString("createdBy", "ADMIN"),
+            lastLogin = if (o.isNull("lastLogin")) null else o.optLong("lastLogin"),
+            notes = o.optString("notes")
+        )
+    }
+
+    private fun toJson(key: AccessKey): JSONObject = JSONObject().apply {
+        put("id", key.id)
+        put("secretKey", key.secretKey)
+        put("username", key.username)
+        put("phone", key.phone)
+        put("role", key.role)
+        put("permissions", JSONArray(key.permissions))
+        put("active", key.active)
+        if (key.expiresAt == null) put("expiresAt", JSONObject.NULL) else put("expiresAt", key.expiresAt)
+        put("createdAt", key.createdAt)
+        put("createdBy", key.createdBy)
+        if (key.lastLogin == null) put("lastLogin", JSONObject.NULL) else put("lastLogin", key.lastLogin)
+        put("notes", key.notes)
+    }
+
+    private fun saveAll(keys: List<AccessKey>) {
+        prefs.edit().putString("keys_json", JSONArray().apply { keys.forEach { put(toJson(it)) } }.toString()).apply()
+        state.value = keys
+    }
+
+    fun listenAllAccessKeys(): Flow<List<AccessKey>> = state
+
+    fun getAllLocalAccessKeys(): List<AccessKey> = state.value
+
+    suspend fun getAccessKeyBySecret(secretKey: String): AccessKey? =
+        state.value.firstOrNull { it.secretKey.equals(secretKey.trim(), ignoreCase = true) }
+
+    suspend fun saveAccessKey(key: AccessKey) {
+        val id = key.id.ifBlank { java.util.UUID.randomUUID().toString() }
+        saveAll(state.value.filterNot { it.id == id } + key.copy(id = id))
+    }
+
+    suspend fun deleteAccessKey(keyId: String) {
+        saveAll(state.value.filterNot { it.id == keyId })
+    }
+
+    suspend fun toggleAccessKeyActive(keyId: String, currentActive: Boolean) {
+        saveAll(state.value.map { if (it.id == keyId) it.copy(active = !currentActive) else it })
+    }
+
+    suspend fun updateLastLogin(keyId: String) {
+        val now = System.currentTimeMillis()
+        saveAll(state.value.map { if (it.id == keyId) it.copy(lastLogin = now) else it })
+    }
+
+    suspend fun regenerateSecretKey(keyId: String, newSecretKey: String) {
+        saveAll(state.value.map { if (it.id == keyId) it.copy(secretKey = newSecretKey) else it })
+    }
+
+    suspend fun updateKeyExpiration(keyId: String, expiresAt: Long?) {
+        saveAll(state.value.map { if (it.id == keyId) it.copy(expiresAt = expiresAt) else it })
+    }
+
+    fun getAllLocalProfiles() = emptyList<com.example.data.model.UserProfile>()
+    fun listenAllProfiles(): Flow<List<com.example.data.model.UserProfile>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
+}
