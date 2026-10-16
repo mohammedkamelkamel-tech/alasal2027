@@ -1,5 +1,7 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
+import com.example.data.database.AppDatabase
 import com.example.data.dao.BillDao
 import com.example.data.dao.PermissionDao
 import com.example.data.dao.UserDao
@@ -13,6 +15,7 @@ import com.example.data.model.UserEntity
 import kotlinx.coroutines.flow.Flow
 
 class BillingRepository(
+    private val db: AppDatabase,
     private val userDao: UserDao,
     private val billDao: BillDao,
     private val permissionDao: PermissionDao,
@@ -63,6 +66,73 @@ class BillingRepository(
     suspend fun deleteMeterReading(id: String) = meterReadingDao.deleteById(id)
     suspend fun deleteBill(bill: BillEntity) = billDao.deleteBill(bill)
     suspend fun insertPayment(payment: PaymentEntity) = paymentDao.insert(payment)
+
+    /**
+     * يسجل التحصيل وتحديث الفاتورة والرصيد الدائن ورقم الإيصال في معاملة Room واحدة.
+     * paymentId ثابت للعملية الواحدة؛ إعادة إرسال المعرف نفسه تعيد الإيصال الموجود ولا تكرر التحصيل.
+     */
+    suspend fun recordPaymentAtomically(
+        billId: String,
+        amountPaidNow: Double,
+        date: String,
+        method: String,
+        collectorId: String,
+        collectorName: String,
+        paymentId: String
+    ): Pair<BillEntity, PaymentEntity>? = db.withTransaction {
+        require(amountPaidNow > 0.0) { "يجب أن يكون مبلغ التحصيل أكبر من صفر" }
+
+        paymentDao.getById(paymentId)?.let { existing ->
+            val existingBill = billDao.getBillById(existing.billId) ?: return@withTransaction null
+            return@withTransaction existingBill to existing
+        }
+
+        val bill = billDao.getBillById(billId) ?: return@withTransaction null
+        val beforeRemaining = bill.remainingAmount.coerceAtLeast(0.0)
+        if (beforeRemaining <= 0.0 || bill.status == BillStatus.CARRIED.name) return@withTransaction null
+
+        val appliedToBill = minOf(amountPaidNow, beforeRemaining)
+        val excessCredit = (amountPaidNow - appliedToBill).coerceAtLeast(0.0)
+        val newPaid = (bill.paidAmount + appliedToBill).coerceAtMost(bill.totalAmount)
+        val newRemaining = (bill.totalAmount - newPaid).coerceAtLeast(0.0)
+        val now = System.currentTimeMillis()
+        val status = when {
+            newRemaining <= 0.0 -> BillStatus.PAID.name
+            newPaid > 0.0 -> BillStatus.PARTIAL.name
+            else -> BillStatus.UNPAID.name
+        }
+
+        billDao.updateBillPayment(
+            billId, status, newPaid, newRemaining, date, method, collectorName, now
+        )
+
+        if (excessCredit > 0.0) {
+            val subscriber = userDao.getUserById(bill.userId)
+                ?: error("تعذر حفظ الرصيد الدائن: المشترك غير موجود")
+            userDao.updateUser(subscriber.copy(creditBalance = subscriber.creditBalance + excessCredit))
+        }
+
+        val payment = PaymentEntity(
+            id = paymentId,
+            adminId = bill.adminId,
+            billId = bill.id,
+            userId = bill.userId,
+            invoiceNumber = bill.invoiceNumber,
+            userName = bill.userName,
+            amount = amountPaidNow,
+            method = method,
+            collectorId = collectorId,
+            collectorName = collectorName,
+            paymentDate = date,
+            paymentAt = now,
+            beforeRemaining = beforeRemaining,
+            afterRemaining = newRemaining,
+            receiptNumber = paymentDao.nextReceiptNumber()
+        )
+        check(paymentDao.insert(payment) != -1L) { "تعذر حفظ إيصال التحصيل؛ تم التراجع عن العملية" }
+        val updated = billDao.getBillById(billId) ?: error("تعذر قراءة الفاتورة بعد التحصيل")
+        updated to payment
+    }
     suspend fun getPaymentsForBill(billId: String): List<PaymentEntity> = paymentDao.getForBill(billId)
 
     suspend fun markBillCarriedForward(id: String) = billDao.markBillCarriedForward(id)
