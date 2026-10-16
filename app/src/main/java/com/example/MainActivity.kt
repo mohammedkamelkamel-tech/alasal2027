@@ -253,14 +253,12 @@ class MainActivity : FragmentActivity() {
                                     canPerformAction = { key -> viewModel.canPerformAction(key) },
                                     onPayClick = { bill, amount, method ->
                                         viewModel.payBill(bill.id, amount, method)
-                                        // الإيصال الحقيقي يُحفظ بعد نجاح المعاملة ويظهر في سجل المقبوضات.
-                                        val remaining = beforeRemaining - amount
-                                        val msg = when {
-                                            remaining > 0.0 -> "تم تسجيل تحصيل جزئي، المتبقي ${com.example.utils.CurrencyFormatter.riyal(remaining)}"
-                                            remaining < 0.0 -> "تم قبول المبلغ الزائد وأصبح رصيداً للمشترك"
-                                            else -> "تم تحصيل الفاتورة ${bill.invoiceNumber} بالكامل"
-                                        }
-                                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                                        // التسجيل غير متزامن؛ لا نعلن النجاح قبل تأكيد حفظ المعاملة.
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "جارٍ تسجيل التحصيل والتحقق من حفظ الإيصال",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 )
                             }
