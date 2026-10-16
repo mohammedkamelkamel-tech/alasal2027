@@ -73,7 +73,7 @@ class MainActivity : FragmentActivity() {
             ElectricityBillingTheme(darkTheme = darkTheme) {
                 val showTopBar = currentAccessKey != null && currentRoute != "login"
                 val showBottomNav = currentAccessKey != null && currentRoute in listOf("home", "bills", "collection", "users", "reports")
-                val showBackButton = currentRoute in listOf("bill_details", "add_edit_bill", "meter_reading", "reading_reminders", "profile", "settings")
+                val showBackButton = currentRoute in listOf("bill_details", "add_edit_bill", "meter_reading", "reading_reminders", "profile", "settings", "account_statement/{userId}")
 
                 val screenTitle = when (currentRoute) {
                     "home" -> "الرئيسية"
@@ -81,6 +81,7 @@ class MainActivity : FragmentActivity() {
                     "keys" -> "إدارة المفاتيح السرية (ADMIN)"
                     "collection" -> "التحصيل والمقبوضات"
                     "users" -> "إدارة المشتركين"
+                    "account_statement/{userId}" -> "كشف حساب المشترك"
                     "reports" -> "التقارير والإحصائيات"
                     "settings" -> "إعدادات الصلاحيات"
                     "bill_details" -> "تفاصيل الفاتورة"
@@ -321,7 +322,18 @@ class MainActivity : FragmentActivity() {
                                     onUpdateUser = { updatedUser ->
                                         viewModel.updateUser(updatedUser)
                                     },
-                                    bills = bills
+                                    bills = bills,
+                                    onAccountStatementClick = { user -> navController.navigate("account_statement/${user.id}") }
+                                )
+                            }
+
+                            composable("account_statement/{userId}") { entry ->
+                                val userId = entry.arguments?.getString("userId")
+                                SubscriberAccountStatementScreen(
+                                    user = users.firstOrNull { it.id == userId },
+                                    bills = bills,
+                                    payments = payments,
+                                    onBack = { navController.popBackStack() }
                                 )
                             }
 
