@@ -395,7 +395,6 @@ class MainActivity : FragmentActivity() {
                                         },
                                         onDeleteClick = { b ->
                                             viewModel.deleteBill(b)
-                                            Toast.makeText(this@MainActivity, "تم حذف الفاتورة بنجاح", Toast.LENGTH_SHORT).show()
                                             navController.popBackStack()
                                         }
                                     )
