@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import androidx.core.content.FileProvider
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +21,7 @@ import com.example.data.model.BillStatus
 import com.example.data.model.PaymentEntity
 import com.example.data.model.UserEntity
 import com.example.utils.CurrencyFormatter
+import com.example.utils.AccountStatementPdf
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,12 +108,32 @@ fun SubscriberAccountStatementScreen(
                 Text(user.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, shareText)
+                try {
+                    val pdf = AccountStatementPdf.create(
+                        context,
+                        "كشف حساب - ${user.name}",
+                        listOf(
+                            "محطة العسل - كشف حساب المشترك",
+                            "اسم المشترك: ${user.name}",
+                            "رقم المشترك: ${user.email.ifBlank { user.userIdCode }}",
+                            "الهاتف: ${user.phone}",
+                            "إجمالي فواتير الاستهلاك: ${CurrencyFormatter.riyal(billedConsumption)}",
+                            "إجمالي التحصيلات: ${CurrencyFormatter.riyal(paidReceipts)}",
+                            "المتبقي المستحق: ${CurrencyFormatter.riyal(outstanding)}",
+                            "تفاصيل الفواتير والتحصيلات"
+                        ) + entries.map { "${it.date} | ${it.title} | ${CurrencyFormatter.riyal(it.amount)} | ${it.detail}" }
+                    )
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdf)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, "مشاركة كشف الحساب PDF"))
+                } catch (error: Exception) {
+                    Toast.makeText(context, "تعذر إنشاء PDF: ${error.message}", Toast.LENGTH_LONG).show()
                 }
-                context.startActivity(Intent.createChooser(intent, "مشاركة كشف الحساب"))
-            }) { Icon(Icons.Filled.Share, contentDescription = "مشاركة كشف الحساب") }
+            }) { Icon(Icons.Filled.Share, contentDescription = "مشاركة كشف الحساب PDF") }
         }
         Spacer(Modifier.height(12.dp))
         Card {
