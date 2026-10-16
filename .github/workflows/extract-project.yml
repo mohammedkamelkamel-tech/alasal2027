@@ -1,0 +1,41 @@
+name: Extract project archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout destination repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Download and extract project ZIP
+        run: |
+          set -euo pipefail
+          curl -fL "https://github.com/mohammedkamelkamel-tech/alasal2026/archive/bbf73ec7c5cdbead047004b807a24fe3cc1b5308.zip" -o /tmp/project.zip
+          mkdir -p /tmp/project
+          unzip -q /tmp/project.zip -d /tmp/project
+          src="$(find /tmp/project -type d -name 'alasal-billing-v2-main' -print -quit)"
+          test -n "$src"
+          rsync -a --exclude='.git/' "$src"/ ./
+          rm -f README.md
+          git status --short
+
+      - name: Commit extracted project files
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Import extracted project source"
+            git push
+          fi
