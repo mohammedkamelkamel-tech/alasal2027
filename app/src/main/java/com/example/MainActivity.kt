@@ -252,11 +252,20 @@ class MainActivity : FragmentActivity() {
                                     payments = payments,
                                     canPerformAction = { key -> viewModel.canPerformAction(key) },
                                     onPayClick = { bill, amount, method ->
-                                        viewModel.payBill(bill.id, amount, method)
-                                        // التسجيل غير متزامن؛ لا نعلن النجاح قبل تأكيد حفظ المعاملة.
+                                        viewModel.payBill(bill.id, amount, method) { savedPayment ->
+                                            val subscriberPhone = bills.firstOrNull { it.id == savedPayment.billId }?.userPhone
+                                                ?: bills.firstOrNull { it.userId == savedPayment.userId && it.userName.equals(savedPayment.userName, ignoreCase = true) }?.userPhone
+                                                ?: ""
+                                            // Open WhatsApp with the receipt image only after the payment is saved.
+                                            com.example.utils.PrintHelper.sharePaymentReceipt(
+                                                context = this@MainActivity,
+                                                payment = savedPayment,
+                                                subscriberPhone = subscriberPhone
+                                            )
+                                        }
                                         Toast.makeText(
                                             this@MainActivity,
-                                            "جارٍ تسجيل التحصيل والتحقق من حفظ الإيصال",
+                                            "جارٍ تسجيل التحصيل؛ ستفتح صورة الإيصال في واتساب بعد الحفظ",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     }
