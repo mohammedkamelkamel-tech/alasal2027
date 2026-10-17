@@ -51,3 +51,5 @@ jobs:
           name: alasal2027-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+# Rebuild requested on 2026-10-17.
