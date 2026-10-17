@@ -45,6 +45,17 @@ jobs:
       - name: Build debug APK (only if tests pass)
         run: gradle --no-daemon assembleDebug
 
+      - name: Package complete Android project
+        run: |
+          zip -r alasal2027-source.zip . \
+            -x ".git/*" ".gradle/*" "*/build/*" "build/*" "local.properties"
+      - name: Upload complete project ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: alasal2027-source-project
+          path: alasal2027-source.zip
+          if-no-files-found: error
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
