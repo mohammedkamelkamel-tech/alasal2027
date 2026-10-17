@@ -743,7 +743,7 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
      */
     private val paymentInProgress = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-    fun payBill(billId: String, amountPaid: Double, method: String = "نقدي") {
+    fun payBill(billId: String, amountPaid: Double, method: String = "نقدي", onPaymentSaved: ((com.example.data.model.PaymentEntity) -> Unit)? = null) {
         if (amountPaid <= 0.0 || !paymentInProgress.add(billId)) return
         viewModelScope.launch {
             try {
@@ -762,6 +762,8 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 val (updatedBill, payment) = result
                 selectedBill.value = updatedBill
                 refreshDataNow()
+                // Open receipt sharing only after the payment transaction has been saved.
+                onPaymentSaved?.invoke(payment)
                 val synced = localNetworkSync.registerPayment(payment)
                 lastSyncError.value = if (synced) null else
                     "تعذّرت مزامنة إيصال التحصيل مع الإدارة؛ بقي محفوظاً محلياً"
