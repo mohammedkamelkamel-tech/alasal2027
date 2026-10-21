@@ -22,6 +22,7 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import com.example.data.model.BillEntity
 import com.example.data.model.BillStatus
+import com.example.data.model.PaymentEntity
 import com.example.ui.components.PaymentDialog
 import com.example.utils.CurrencyFormatter
 import com.example.ui.theme.ElectricBlue
@@ -30,6 +31,7 @@ import com.example.ui.theme.VibrantGreen
 @Composable
 fun BillDetailsScreen(
     bill: BillEntity,
+    payments: List<PaymentEntity> = emptyList(),
     onBackClick: () -> Unit,
     onPayClick: (BillEntity, Double, String) -> Unit,
     onEditClick: (BillEntity) -> Unit,
@@ -65,6 +67,9 @@ fun BillDetailsScreen(
         pendingSms = false
     }
     val statusEnum = BillStatus.fromString(bill.status)
+    val billPayments = payments.filter { it.billId == bill.id }.sortedByDescending { it.paymentAt }
+    val actualCollectedForBill = if (billPayments.isNotEmpty()) billPayments.sumOf { it.amount } else bill.paidAmount
+    val latestPayment = billPayments.firstOrNull()
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showPaymentDialog by remember { mutableStateOf(false) }
 
@@ -301,7 +306,9 @@ fun BillDetailsScreen(
                         DetailRow(label = "سعر الكيلو", value = "${bill.unitPrice.toInt()} ريال / ك.و.س")
                     }
                     DetailRow(label = "قيمة الاستهلاك", value = CurrencyFormatter.riyal(bill.subtotalAmount))
-                    DetailRow(label = "المتأخرات السابقة", value = CurrencyFormatter.riyal(bill.previousDebt))
+                    DetailRow(label = "المتأخرات السابقة", value = CurrencyFormatter.riyal(bill.previousDebt.coerceAtLeast(0.0)))
+                    val displayedCredit = bill.creditApplied.takeIf { it > 0.0 } ?: (-bill.previousDebt).coerceAtLeast(0.0)
+                    if (displayedCredit > 0.0) DetailRow(label = "الرصيد الدائن المخصوم", value = "-${CurrencyFormatter.riyal(displayedCredit)}")
                     DetailRow(label = "تاريخ الإصدار", value = bill.issueDate.ifBlank { bill.readingDate })
                     DetailRow(label = "تاريخ الاستحقاق", value = bill.dueDate)
 
@@ -344,12 +351,15 @@ fun BillDetailsScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    if (bill.paidAmount > 0.0) {
-                        DetailRow(label = "تاريخ آخر دفعة", value = bill.paymentDate.ifBlank { "-" })
-                        DetailRow(label = "إجمالي المدفوع", value = CurrencyFormatter.riyalFull(bill.paidAmount))
+                    if (bill.paidAmount > 0.0 || billPayments.isNotEmpty()) {
+                        DetailRow(label = "تاريخ آخر دفعة", value = latestPayment?.paymentDate?.ifBlank { "-" } ?: bill.paymentDate.ifBlank { "-" })
+                        DetailRow(label = "إجمالي المدفوع فعليًا", value = CurrencyFormatter.riyalFull(actualCollectedForBill))
+                        DetailRow(label = "المحتسب على الفاتورة", value = CurrencyFormatter.riyalFull(bill.paidAmount))
+                        val creditFromPayments = (actualCollectedForBill - bill.paidAmount).coerceAtLeast(0.0)
+                        if (creditFromPayments > 0.0) DetailRow(label = "الرصيد الدائن الناتج", value = CurrencyFormatter.riyalFull(creditFromPayments))
                         DetailRow(label = "المتبقي", value = CurrencyFormatter.riyalFull(bill.remainingAmount))
-                        DetailRow(label = "طريقة الدفع", value = bill.paymentMethod.ifBlank { "نقدي" })
-                        DetailRow(label = "المحصل", value = bill.paymentCollector.ifBlank { "-" })
+                        DetailRow(label = "طريقة الدفع", value = latestPayment?.method ?: bill.paymentMethod.ifBlank { "نقدي" })
+                        DetailRow(label = "المحصل", value = latestPayment?.collectorName ?: bill.paymentCollector.ifBlank { "-" })
                         DetailRow(label = "حالة السداد", value = statusEnum.titleAr)
                     } else {
                         Text(
