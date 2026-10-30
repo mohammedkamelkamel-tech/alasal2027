@@ -113,7 +113,7 @@ class BillingRepositoryTransactionTest {
             previousDebt = -5360.0,
             totalAmount = 0.0,
             paidAmount = 0.0,
-            remainingAmount = -5360.0,
+            remainingAmount = 0.0,
             status = "PAID"
         )
         db.billDao().insertBill(previous)
