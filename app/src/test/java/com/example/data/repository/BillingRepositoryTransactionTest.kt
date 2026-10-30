@@ -100,6 +100,98 @@ class BillingRepositoryTransactionTest {
     }
 
     @Test
+    fun legacyNegativeInvoiceBalanceIsTransferredAndAppliedExactlyOnce() = runBlocking {
+        db.userDao().insertUser(
+            UserEntity(id = "subscriber-1", name = "عادل", creditBalance = 0.0)
+        )
+        val previous = BillEntity(
+            id = "legacy-credit-bill",
+            invoiceNumber = "#17664",
+            userId = "subscriber-1",
+            userName = "عادل",
+            subtotalAmount = 13770.0,
+            previousDebt = -19130.0,
+            totalAmount = 0.0,
+            paidAmount = 0.0,
+            remainingAmount = -5360.0,
+            status = "PAID"
+        )
+        db.billDao().insertBill(previous)
+
+        val currentDraft = BillEntity(
+            id = "current-bill",
+            invoiceNumber = "#17665",
+            userId = "subscriber-1",
+            userName = "عادل",
+            consumptionKwh = 86.0,
+            unitPrice = 192.0,
+            subtotalAmount = 16512.0,
+            totalAmount = 16512.0,
+            remainingAmount = 16512.0
+        )
+        val (current, changedPrevious) = repository.createBillWithBalanceCarryForward(currentDraft)
+
+        assertEquals(16512.0, current.subtotalAmount, 0.001)
+        assertEquals(5360.0, current.creditApplied, 0.001)
+        assertEquals(11152.0, current.totalAmount, 0.001)
+        assertEquals(11152.0, current.remainingAmount, 0.001)
+        assertEquals(0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
+        assertEquals(true, changedPrevious.single().legacyCreditTransferred)
+        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.remainingAmount, 0.001)
+
+        val nextDraft = currentDraft.copy(
+            id = "following-bill",
+            invoiceNumber = "#17666",
+            subtotalAmount = 1000.0,
+            totalAmount = 1000.0,
+            remainingAmount = 1000.0
+        )
+        val (following, _) = repository.createBillWithBalanceCarryForward(nextDraft)
+        assertEquals(1000.0, following.totalAmount, 0.001)
+        assertEquals(0.0, following.creditApplied, 0.001)
+    }
+
+    @Test
+    fun unusedLegacyCreditRemainsOnSubscriberForTheFollowingInvoice() = runBlocking {
+        db.userDao().insertUser(UserEntity(id = "subscriber-1", name = "مشترك", creditBalance = 0.0))
+        db.billDao().insertBill(
+            BillEntity(
+                id = "legacy-credit-small",
+                invoiceNumber = "#20",
+                userId = "subscriber-1",
+                userName = "مشترك",
+                remainingAmount = -1500.0,
+                status = "PAID"
+            )
+        )
+        val firstDraft = BillEntity(
+            id = "small-current",
+            invoiceNumber = "#21",
+            userId = "subscriber-1",
+            userName = "مشترك",
+            subtotalAmount = 1000.0,
+            totalAmount = 1000.0,
+            remainingAmount = 1000.0
+        )
+        val (first, _) = repository.createBillWithBalanceCarryForward(firstDraft)
+        assertEquals(0.0, first.totalAmount, 0.001)
+        assertEquals(1000.0, first.creditApplied, 0.001)
+        assertEquals(500.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
+
+        val secondDraft = firstDraft.copy(
+            id = "next-current",
+            invoiceNumber = "#22",
+            subtotalAmount = 700.0,
+            totalAmount = 700.0,
+            remainingAmount = 700.0
+        )
+        val (second, _) = repository.createBillWithBalanceCarryForward(secondDraft)
+        assertEquals(200.0, second.totalAmount, 0.001)
+        assertEquals(500.0, second.creditApplied, 0.001)
+        assertEquals(0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
+    }
+
+    @Test
     fun settledBillRejectsAdditionalPayment() = runBlocking {
         seedBill()
         repository.recordPaymentAtomically(
