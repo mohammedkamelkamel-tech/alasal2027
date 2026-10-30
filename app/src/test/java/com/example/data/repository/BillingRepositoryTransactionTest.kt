@@ -160,7 +160,8 @@ class BillingRepositoryTransactionTest {
                 invoiceNumber = "#20",
                 userId = "subscriber-1",
                 userName = "مشترك",
-                remainingAmount = -1500.0,
+                previousDebt = -1500.0,
+                remainingAmount = 0.0,
                 status = "PAID"
             )
         )
