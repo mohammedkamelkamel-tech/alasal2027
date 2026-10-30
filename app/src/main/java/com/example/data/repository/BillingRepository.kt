@@ -57,6 +57,60 @@ class BillingRepository(
     suspend fun getArrearsForUser(userId: String): Double =
         billDao.getOutstandingBillsForUser(userId).sumOf { it.remainingAmount }
 
+    /**
+     * إنشاء فاتورة وترحيل المتأخرات واستهلاك الرصيد الدائن في معاملة واحدة.
+     * يتضمن ترحيل الأرصدة السالبة القديمة من الفواتير السابقة مرة واحدة فقط.
+     */
+    suspend fun createBillWithBalanceCarryForward(
+        draftBill: BillEntity
+    ): Pair<BillEntity, List<BillEntity>> = db.withTransaction {
+        val subscriber = userDao.getUserById(draftBill.userId)
+        val previousBills = billDao.getBillsForUserOnce(draftBill.userId)
+
+        val outstanding = previousBills.filter {
+            it.status !in listOf(BillStatus.PAID.name, BillStatus.CARRIED.name) &&
+                it.remainingAmount > 0.0
+        }
+        val legacyCreditBills = previousBills.filter {
+            !it.legacyCreditTransferred && it.remainingAmount < 0.0
+        }
+        val legacyCredit = legacyCreditBills.sumOf { -it.remainingAmount }
+        check(subscriber != null || legacyCredit <= 0.0) {
+            "تعذر ترحيل الرصيد الدائن: بطاقة المشترك غير موجودة"
+        }
+
+        val arrears = outstanding.sumOf { it.remainingAmount }
+        val availableCredit = (subscriber?.creditBalance ?: 0.0) + legacyCredit
+        val grossTotal = draftBill.subtotalAmount + arrears
+        val creditApplied = minOf(availableCredit, grossTotal).coerceAtLeast(0.0)
+        val total = (grossTotal - creditApplied).coerceAtLeast(0.0)
+
+        val bill = draftBill.copy(
+            previousDebt = arrears,
+            creditApplied = creditApplied,
+            totalAmount = total,
+            paidAmount = 0.0,
+            remainingAmount = total,
+            status = if (total <= 0.0) BillStatus.PAID.name else BillStatus.UNPAID.name
+        )
+
+        billDao.insertBill(bill)
+        outstanding.forEach { billDao.markBillCarriedForward(it.id) }
+        legacyCreditBills.forEach {
+            billDao.updateBill(it.copy(legacyCreditTransferred = true))
+        }
+        if (subscriber != null) {
+            userDao.updateUser(
+                subscriber.copy(creditBalance = (availableCredit - creditApplied).coerceAtLeast(0.0))
+            )
+        }
+
+        val changedPreviousBills = (outstanding.map { it.id } + legacyCreditBills.map { it.id })
+            .distinct()
+            .mapNotNull { billDao.getBillById(it) }
+        bill to changedPreviousBills
+    }
+
     suspend fun insertBill(bill: BillEntity): Unit = billDao.insertBill(bill)
     suspend fun insertMeterReading(reading: MeterReadingEntity) = meterReadingDao.insert(reading)
     suspend fun insertReadingReminder(reminder: ReadingReminderEntity) = readingReminderDao.insert(reminder)
