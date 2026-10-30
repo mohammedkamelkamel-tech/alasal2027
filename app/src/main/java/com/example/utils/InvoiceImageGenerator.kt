@@ -120,7 +120,10 @@ object InvoiceImageGenerator {
             y += 40f
             
             drawRow("قيمة الاستهلاك:", CurrencyFormatter.riyal(bill.subtotalAmount))
-            drawRow("المتأخرات السابقة:", CurrencyFormatter.riyal(bill.previousDebt))
+            drawRow("المتأخرات السابقة:", CurrencyFormatter.riyal(bill.previousDebt.coerceAtLeast(0.0)))
+            if (bill.creditApplied > 0.0) {
+                drawRow("الرصيد الدائن المخصوم:", "-" + CurrencyFormatter.riyal(bill.creditApplied))
+            }
             
             y += 20f
             canvas.drawLine(50f, y, width - 50f, y, linePaint)
