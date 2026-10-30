@@ -71,14 +71,15 @@ class BillingRepository(
             it.status !in listOf(BillStatus.PAID.name, BillStatus.CARRIED.name) &&
                 it.remainingAmount > 0.0
         }
-        // previousDebt is a rolling balance snapshot, not a separate credit transaction.
-        // Older invoices may repeat the same negative balance; use only the newest snapshot
-        // and mark every historical snapshot as transferred to prevent counting it later.
+        // In legacy invoices the actual carried credit is stored as a NEGATIVE
+        // remainingAmount. previousDebt is a calculation snapshot and can contain
+        // consumption plus credit (e.g. -19,130), so it must not be used as credit.
+        // Use the newest negative remaining balance only.
         val legacyCreditBills = previousBills.filter {
-            !it.legacyCreditTransferred && it.previousDebt < 0.0
+            !it.legacyCreditTransferred && it.remainingAmount < 0.0
         }
         val latestLegacyCredit = legacyCreditBills.maxByOrNull { it.createdAt }
-        val legacyCredit = latestLegacyCredit?.previousDebt?.let { -it } ?: 0.0
+        val legacyCredit = latestLegacyCredit?.remainingAmount?.let { -it } ?: 0.0
         check(subscriber != null || legacyCredit <= 0.0) {
             "تعذر ترحيل الرصيد الدائن: بطاقة المشترك غير موجودة"
         }
