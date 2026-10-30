@@ -50,5 +50,7 @@ data class BillEntity(
     val paymentAt: Long = 0L,
     val readingImageUri: String? = null,
     /** وقت إنشاء الفاتورة الفعلي، لضمان ترتيب الأحدث أولاً حتى لو كانت أرقام الفواتير عشوائية. */
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** يمنع ترحيل الرصيد السالب القديم من هذه الفاتورة أكثر من مرة. */
+    val legacyCreditTransferred: Boolean = false
 )
