@@ -628,16 +628,6 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
             val consumption = (currentReading - effectivePrev).coerceAtLeast(0.0)
             val subtotal = consumption * effectiveUnitPrice
 
-            // الرصيد الدائن محفوظ على بطاقة المشترك، وليس داخل فاتورة سالبة.
-            val allPreviousBills = repository.getBillsForUserOnce(userId)
-            val outstanding = allPreviousBills.filter {
-                it.status !in listOf(BillStatus.PAID.name, BillStatus.CARRIED.name) && it.remainingAmount > 0.0
-            }
-            val arrears = outstanding.sumOf { it.remainingAmount }
-            val availableCredit = subscriber?.creditBalance?.coerceAtLeast(0.0) ?: 0.0
-            val grossTotal = subtotal + arrears
-            val creditApplied = minOf(availableCredit, grossTotal)
-            val total = (grossTotal - creditApplied).coerceAtLeast(0.0)
             // رقم تسلسلي محفوظ دائماً، ويُقارن بأعلى رقم موجود لتفادي التكرار بعد حذف فاتورة.
             val highestStoredInvoice = repository.allBills.first()
                 .mapNotNull { it.invoiceNumber.removePrefix("#").toLongOrNull() }
@@ -650,8 +640,7 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
 
             val issueDate = readingDate.ifBlank { todayFormatted() }
             val dueDate = dueDateFrom(issueDate)
-
-            val bill = BillEntity(
+            val draftBill = BillEntity(
                 adminId = resolveOrganizationAdminId(),
                 invoiceNumber = invNum,
                 userId = userId,
@@ -663,41 +652,32 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 consumptionKwh = consumption,
                 unitPrice = effectiveUnitPrice,
                 subtotalAmount = subtotal,
-                previousDebt = arrears,
-                creditApplied = creditApplied,
-                totalAmount = total,
+                totalAmount = subtotal,
                 paidAmount = 0.0,
-                remainingAmount = total,
+                remainingAmount = subtotal,
                 issueDate = issueDate,
                 dueDate = dueDate,
-                status = if (total <= 0.0) BillStatus.PAID.name else BillStatus.UNPAID.name,
                 readingDate = issueDate,
                 notes = notes,
                 readingImageUri = readingImageUri,
                 createdAt = System.currentTimeMillis()
             )
-            // إصدار الفاتورة، ترحيل المتأخرات، واستهلاك الرصيد الدائن عملية واحدة.
-            db.withTransaction {
-                repository.insertBill(bill)
-                outstanding.forEach { old -> repository.markBillCarriedForward(old.id) }
-                if (creditApplied > 0.0 && subscriber != null) {
-                    db.userDao().updateUser(subscriber.copy(
-                        creditBalance = (subscriber.creditBalance - creditApplied).coerceAtLeast(0.0)
-                    ))
-                }
-            }
-            refreshDataNow()
-            outstanding.forEach { old ->
-                repository.getBillById(old.id)?.let { localNetworkSync.saveBill(it) }
-            }
 
+            // الحساب والترحيل والاستهلاك تتم ذرياً اعتماداً على أحدث بيانات قاعدة البيانات.
+            val (bill, changedPreviousBills) = repository.createBillWithBalanceCarryForward(draftBill)
+            refreshDataNow()
+            changedPreviousBills.forEach { localNetworkSync.saveBill(it) }
             val synced = localNetworkSync.saveBill(bill)
-            lastSyncError.value = if (synced) null else "تعذّرت مزامنة الفاتورة عبر شبكة Wi‑Fi المحلية، ستتم إعادة المحاولة عند توفر الشبكة"
+            val updatedSubscriber = repository.getUserById(userId)
+            if (updatedSubscriber != null) localNetworkSync.saveUser(updatedSubscriber)
+            lastSyncError.value = if (synced) null else
+                "تعذّرت مزامنة الفاتورة عبر شبكة Wi‑Fi المحلية، ستتم إعادة المحاولة عند توفر الشبكة"
+
             try {
                 com.example.utils.NotificationHelper.sendNewBillNotification(
                     context = getApplication(),
                     subscriberName = userName,
-                    amount = total,
+                    amount = bill.totalAmount,
                     billId = bill.id
                 )
             } catch (e: Exception) {

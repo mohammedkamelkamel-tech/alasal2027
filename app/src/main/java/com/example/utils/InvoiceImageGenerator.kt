@@ -120,7 +120,10 @@ object InvoiceImageGenerator {
             y += 40f
             
             drawRow("قيمة الاستهلاك:", CurrencyFormatter.riyal(bill.subtotalAmount))
-            drawRow("المتأخرات السابقة:", CurrencyFormatter.riyal(bill.previousDebt))
+            drawRow("المتأخرات السابقة:", CurrencyFormatter.riyal(bill.previousDebt.coerceAtLeast(0.0)))
+            if (bill.creditApplied > 0.0) {
+                drawRow("الرصيد الدائن المخصوم:", "-" + CurrencyFormatter.riyal(bill.creditApplied))
+            }
             
             y += 20f
             canvas.drawLine(50f, y, width - 50f, y, linePaint)
@@ -172,7 +175,7 @@ object InvoiceImageGenerator {
     fun generatePaymentReceiptImage(context: Context, payment: com.example.data.model.PaymentEntity): File? {
         try {
             val width = 800
-            val height = 900
+            val height = 1000
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             canvas.drawColor(Color.rgb(248, 250, 255))
@@ -193,7 +196,7 @@ object InvoiceImageGenerator {
                 textAlign = Paint.Align.CENTER
             }
             val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; strokeWidth = 3f }
-            canvas.drawRoundRect(24f, 24f, 776f, 876f, 28f, 28f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            canvas.drawRoundRect(24f, 24f, 776f, 976f, 28f, 28f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
             })
             var y = 95f
@@ -218,7 +221,14 @@ object InvoiceImageGenerator {
             canvas.drawText(CurrencyFormatter.riyalFull(payment.amount), width / 2f, y, amountPaint); y += 60f
             canvas.drawText("المتبقي بعد التحصيل: ${CurrencyFormatter.riyal(payment.afterRemaining.coerceAtLeast(0.0))}", width / 2f, y,
                 Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 26f; textAlign = Paint.Align.CENTER })
-            y += 58f
+            y += 48f
+            val appliedToInvoice = (payment.beforeRemaining - payment.afterRemaining).coerceAtLeast(0.0)
+            val creditAdded = (payment.amount - appliedToInvoice).coerceAtLeast(0.0)
+            if (creditAdded > 0.0) {
+                canvas.drawText("الرصيد الدائن المضاف: ${CurrencyFormatter.riyal(creditAdded)}", width / 2f, y,
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 26f; textAlign = Paint.Align.CENTER })
+                y += 48f
+            }
             canvas.drawText("شكراً لكم", width / 2f, y, titlePaint)
 
             val file = File(context.cacheDir, "payment_receipt_${payment.receiptNumber.takeIf { it > 0 } ?: System.currentTimeMillis()}.png")

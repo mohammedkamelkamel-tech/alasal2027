@@ -364,6 +364,7 @@ class MainActivity : FragmentActivity() {
                                 selectedBill?.let { bill ->
                                     BillDetailsScreen(
                                         bill = bill,
+                                        payments = payments,
                                         onBackClick = { navController.popBackStack() },
                                         onPayClick = { b, amount, method ->
                                             viewModel.payBill(b.id, amount, method)

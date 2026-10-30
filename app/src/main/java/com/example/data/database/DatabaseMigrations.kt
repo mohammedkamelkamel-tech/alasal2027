@@ -241,3 +241,11 @@ val MIGRATION_13_14 = object : Migration(13, 14) {
         """.trimIndent())
     }
 }
+
+
+/** الإصدار 15: تعليم الفواتير القديمة التي نُقل رصيدها الدائن إلى رصيد المشترك لمنع تكراره. */
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE bills ADD COLUMN legacyCreditTransferred INTEGER NOT NULL DEFAULT 0")
+    }
+}
