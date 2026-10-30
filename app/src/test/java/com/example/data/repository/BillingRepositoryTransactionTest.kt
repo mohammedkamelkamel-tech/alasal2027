@@ -147,7 +147,9 @@ class BillingRepositoryTransactionTest {
             remainingAmount = 1000.0
         )
         val (following, _) = repository.createBillWithBalanceCarryForward(nextDraft)
-        assertEquals("يجب عدم خصم الرصيد القديم مرة ثانية", 1000.0, following.totalAmount, 0.001)
+        assertEquals("لا يُعاد استخدام الرصيد الدائن القديم، وتُرحّل متأخرات الفاتورة السابقة", 12152.0, following.totalAmount, 0.001)
+        assertEquals("المتبقي من الفاتورة السابقة يُرحّل كمديونية", 11152.0, following.previousDebt, 0.001)
+        assertEquals("لا يُخصم الرصيد الدائن مرة ثانية", 0.0, following.creditApplied, 0.001)
         assertEquals(0.0, following.creditApplied, 0.001)
     }
 
