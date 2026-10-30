@@ -110,7 +110,7 @@ class BillingRepositoryTransactionTest {
             userId = "subscriber-1",
             userName = "عادل",
             subtotalAmount = 13770.0,
-            previousDebt = -19130.0,
+            previousDebt = -5360.0,
             totalAmount = 0.0,
             paidAmount = 0.0,
             remainingAmount = -5360.0,
