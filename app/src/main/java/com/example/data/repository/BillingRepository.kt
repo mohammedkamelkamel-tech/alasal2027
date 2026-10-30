@@ -74,7 +74,7 @@ class BillingRepository(
         val legacyCreditBills = previousBills.filter {
             !it.legacyCreditTransferred && it.previousDebt < 0.0
         }
-        val legacyCredit = legacyCreditBills.sumOf { -it.remainingAmount }
+        val legacyCredit = legacyCreditBills.sumOf { -it.previousDebt }
         check(subscriber != null || legacyCredit <= 0.0) {
             "تعذر ترحيل الرصيد الدائن: بطاقة المشترك غير موجودة"
         }
