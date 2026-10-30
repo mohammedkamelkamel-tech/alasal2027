@@ -72,7 +72,7 @@ class BillingRepository(
                 it.remainingAmount > 0.0
         }
         val legacyCreditBills = previousBills.filter {
-            !it.legacyCreditTransferred && it.remainingAmount < 0.0
+            !it.legacyCreditTransferred && it.previousDebt < 0.0
         }
         val legacyCredit = legacyCreditBills.sumOf { -it.remainingAmount }
         check(subscriber != null || legacyCredit <= 0.0) {
