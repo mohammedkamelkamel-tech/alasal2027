@@ -137,7 +137,7 @@ class BillingRepositoryTransactionTest {
         assertEquals(11152.0, current.remainingAmount, 0.001)
         assertEquals(0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
         assertEquals(true, changedPrevious.single().legacyCreditTransferred)
-        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.remainingAmount, 0.001)
+        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.previousDebt, 0.001)
 
         val nextDraft = currentDraft.copy(
             id = "following-bill",
