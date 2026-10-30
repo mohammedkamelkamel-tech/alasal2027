@@ -117,6 +117,14 @@ class BillingRepositoryTransactionTest {
             status = "PAID"
         )
         db.billDao().insertBill(previous)
+        // Older invoices can contain the same rolling negative balance snapshot.
+        db.billDao().insertBill(
+            previous.copy(
+                id = "legacy-credit-older-snapshot",
+                invoiceNumber = "#17663",
+                createdAt = previous.createdAt - 1000L
+            )
+        )
 
         val currentDraft = BillEntity(
             id = "current-bill",
@@ -136,8 +144,10 @@ class BillingRepositoryTransactionTest {
         assertEquals("الإجمالي بعد خصم الرصيد", 11152.0, current.totalAmount, 0.001)
         assertEquals("المتبقي بعد إنشاء الفاتورة", 11152.0, current.remainingAmount, 0.001)
         assertEquals("رصيد المشترك بعد استخدام الرصيد القديم", 0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
-        assertEquals(true, changedPrevious.single().legacyCreditTransferred)
+        assertEquals(2, changedPrevious.size)
+        assertEquals(true, changedPrevious.all { it.legacyCreditTransferred })
         assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.previousDebt, 0.001)
+        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-older-snapshot")!!.previousDebt, 0.001)
 
         val nextDraft = currentDraft.copy(
             id = "following-bill",
