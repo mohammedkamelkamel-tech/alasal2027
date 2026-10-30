@@ -131,11 +131,11 @@ class BillingRepositoryTransactionTest {
         )
         val (current, changedPrevious) = repository.createBillWithBalanceCarryForward(currentDraft)
 
-        assertEquals(16512.0, current.subtotalAmount, 0.001)
-        assertEquals(5360.0, current.creditApplied, 0.001)
-        assertEquals(11152.0, current.totalAmount, 0.001)
-        assertEquals(11152.0, current.remainingAmount, 0.001)
-        assertEquals(0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
+        assertEquals("قيمة الاستهلاك الأصلية", 16512.0, current.subtotalAmount, 0.001)
+        assertEquals("الرصيد الدائن المرحّل", 5360.0, current.creditApplied, 0.001)
+        assertEquals("الإجمالي بعد خصم الرصيد", 11152.0, current.totalAmount, 0.001)
+        assertEquals("المتبقي بعد إنشاء الفاتورة", 11152.0, current.remainingAmount, 0.001)
+        assertEquals("رصيد المشترك بعد استخدام الرصيد القديم", 0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
         assertEquals(true, changedPrevious.single().legacyCreditTransferred)
         assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.previousDebt, 0.001)
 
@@ -147,7 +147,7 @@ class BillingRepositoryTransactionTest {
             remainingAmount = 1000.0
         )
         val (following, _) = repository.createBillWithBalanceCarryForward(nextDraft)
-        assertEquals(1000.0, following.totalAmount, 0.001)
+        assertEquals("يجب عدم خصم الرصيد القديم مرة ثانية", 1000.0, following.totalAmount, 0.001)
         assertEquals(0.0, following.creditApplied, 0.001)
     }
 
