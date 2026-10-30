@@ -307,7 +307,7 @@ fun BillDetailsScreen(
                     }
                     DetailRow(label = "قيمة الاستهلاك", value = CurrencyFormatter.riyal(bill.subtotalAmount))
                     DetailRow(label = "المتأخرات السابقة", value = CurrencyFormatter.riyal(bill.previousDebt.coerceAtLeast(0.0)))
-                    val displayedCredit = bill.creditApplied.takeIf { it > 0.0 } ?: (-bill.previousDebt).coerceAtLeast(0.0)
+                    val displayedCredit = bill.creditApplied.takeIf { it > 0.0 } ?: (-bill.remainingAmount).coerceAtLeast(0.0)
                     if (displayedCredit > 0.0) DetailRow(label = "الرصيد الدائن المخصوم", value = "-${CurrencyFormatter.riyal(displayedCredit)}")
                     DetailRow(label = "تاريخ الإصدار", value = bill.issueDate.ifBlank { bill.readingDate })
                     DetailRow(label = "تاريخ الاستحقاق", value = bill.dueDate)
