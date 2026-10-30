@@ -110,10 +110,10 @@ class BillingRepositoryTransactionTest {
             userId = "subscriber-1",
             userName = "عادل",
             subtotalAmount = 13770.0,
-            previousDebt = -5360.0,
+            previousDebt = -19130.0,
             totalAmount = 0.0,
             paidAmount = 0.0,
-            remainingAmount = 0.0,
+            remainingAmount = -5360.0,
             status = "PAID"
         )
         db.billDao().insertBill(previous)
@@ -146,8 +146,8 @@ class BillingRepositoryTransactionTest {
         assertEquals("رصيد المشترك بعد استخدام الرصيد القديم", 0.0, db.userDao().getUserById("subscriber-1")!!.creditBalance, 0.001)
         assertEquals(2, changedPrevious.size)
         assertEquals(true, changedPrevious.all { it.legacyCreditTransferred })
-        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.previousDebt, 0.001)
-        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-older-snapshot")!!.previousDebt, 0.001)
+        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-bill")!!.remainingAmount, 0.001)
+        assertEquals(-5360.0, db.billDao().getBillById("legacy-credit-older-snapshot")!!.remainingAmount, 0.001)
 
         val nextDraft = currentDraft.copy(
             id = "following-bill",
@@ -172,8 +172,9 @@ class BillingRepositoryTransactionTest {
                 invoiceNumber = "#20",
                 userId = "subscriber-1",
                 userName = "مشترك",
+                subtotalAmount = 0.0,
                 previousDebt = -1500.0,
-                remainingAmount = 0.0,
+                remainingAmount = -1500.0,
                 status = "PAID"
             )
         )
