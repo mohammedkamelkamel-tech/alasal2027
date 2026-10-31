@@ -215,4 +215,5 @@ object BackupHelper {
         } finally {
             database.close()
         }
-    }}
+    }
+}
