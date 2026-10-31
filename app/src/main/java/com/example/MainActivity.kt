@@ -73,10 +73,11 @@ class MainActivity : FragmentActivity() {
             ElectricityBillingTheme(darkTheme = darkTheme) {
                 val showTopBar = currentAccessKey != null && currentRoute != "login"
                 val showBottomNav = currentAccessKey != null && currentRoute in listOf("home", "bills", "collection", "users", "reports")
-                val showBackButton = currentRoute in listOf("bill_details", "add_edit_bill", "meter_reading", "reading_reminders", "profile", "settings", "account_statement/{userId}")
+                val showBackButton = currentRoute in listOf("bill_details", "add_edit_bill", "meter_reading", "reading_reminders", "profile", "settings", "account_statement/{userId}", "collector_report")
 
                 val screenTitle = when (currentRoute) {
                     "home" -> "الرئيسية"
+                    "collector_report" -> "كشف تحصيل العامل"
                     "bills" -> "إدارة الفواتير"
                     "keys" -> "إدارة المفاتيح السرية (ADMIN)"
                     "collection" -> "التحصيل والمقبوضات"
@@ -210,11 +211,20 @@ class MainActivity : FragmentActivity() {
                                         launchSingleTop = true
                                     }
                                 },
+                                onCollectorReportClick = {
+                                    navController.navigate("collector_report") {
+                                        launchSingleTop = true
+                                    }
+                                },
                                 onBillClick = { bill ->
                                     viewModel.selectBill(bill)
                                     navController.navigate("bill_details")
                                 }
                             )
+                        }
+
+                        composable("collector_report") {
+                            CollectorReportScreen(bills = bills)
                         }
 
                             composable("bills") {
