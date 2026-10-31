@@ -39,6 +39,7 @@ fun DashboardScreen(
     users: List<UserEntity>,
     onAddBillClick: () -> Unit,
     onCollectionClick: () -> Unit,
+    onCollectorReportClick: () -> Unit,
     onBillClick: (BillEntity) -> Unit
 ) {
     val isAdmin = currentUserProfile.roleType == RoleType.SUPERVISOR
@@ -94,6 +95,19 @@ fun DashboardScreen(
                     enabled = true,
                     onClick = onCollectionClick
                 )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                QuickAction(
+                    title = "كشف تحصيل العامل",
+                    icon = Icons.Filled.PictureAsPdf,
+                    color = ElectricBlue,
+                    modifier = Modifier.weight(1f),
+                    enabled = true,
+                    onClick = onCollectorReportClick
+                )
+                Spacer(Modifier.weight(1f))
             }
         }
 
