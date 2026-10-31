@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.BillEntity
@@ -74,6 +75,29 @@ fun CollectionScreen(
 
         item {
             Text("الفواتير المستحقة للتحصيل", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+        }
+
+        if (pending.isNotEmpty()) {
+            item {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            com.example.utils.CollectionDebtPdf.share(context, pending)
+                        } catch (error: Exception) {
+                            Toast.makeText(
+                                context,
+                                error.message?.takeIf { it.isNotBlank() } ?: "تعذر إنشاء كشف التحصيل PDF",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("إصدار كشف المبالغ PDF للعامل")
+                }
+            }
         }
 
         if (pending.isEmpty()) {
