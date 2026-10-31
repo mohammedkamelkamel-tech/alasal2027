@@ -34,7 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         /**
-         * Close the current Room instance before replacing the database file.
+         * Close the current Room instance before replacing the database file during restore.
          * Restore must never delete/overwrite SQLite files while Room is using them.
          */
         fun closeDatabaseForRestore() {
