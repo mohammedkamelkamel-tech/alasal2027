@@ -16,8 +16,17 @@ import java.util.zip.ZipOutputStream
 object BackupHelper {
     private const val DB_NAME = "electricity_billing_db"
 
+    /** دمج معاملات WAL داخل ملف SQLite قبل نسخه حتى تكون النسخة مكتملة بذاتها. */
+    private suspend fun checkpointDatabase(context: Context) {
+        runCatching {
+            val database = AppDatabase.getDatabase(context)
+            database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { }
+        }.onFailure { it.printStackTrace() }
+    }
+
     suspend fun backupDatabase(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
         try {
+            checkpointDatabase(context)
             val dbFile = context.getDatabasePath(DB_NAME)
             val walFile = File(dbFile.parent, "$DB_NAME-wal")
             val shmFile = File(dbFile.parent, "$DB_NAME-shm")
@@ -46,6 +55,7 @@ object BackupHelper {
 
     suspend fun createBackupFile(context: Context, targetFile: File): Boolean = withContext(Dispatchers.IO) {
         try {
+            checkpointDatabase(context)
             targetFile.parentFile?.mkdirs()
             val dbFile = context.getDatabasePath(DB_NAME)
             val walFile = File(dbFile.parent, "$DB_NAME-wal")
@@ -70,6 +80,7 @@ object BackupHelper {
 
     suspend fun createBackupFileForSharing(context: Context): File? = withContext(Dispatchers.IO) {
         try {
+            checkpointDatabase(context)
             val dbFile = context.getDatabasePath(DB_NAME)
             val walFile = File(dbFile.parent, "$DB_NAME-wal")
             val shmFile = File(dbFile.parent, "$DB_NAME-shm")
