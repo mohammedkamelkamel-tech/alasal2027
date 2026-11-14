@@ -48,5 +48,13 @@ abstract class AppDatabase : RoomDatabase() {
                 instance
             }
         }
+
+        /** إغلاق اتصال Room قبل استبدال ملف قاعدة البيانات أثناء الاستعادة. */
+        fun closeForRestore() {
+            synchronized(this) {
+                INSTANCE?.close()
+                INSTANCE = null
+            }
+        }
     }
 }
