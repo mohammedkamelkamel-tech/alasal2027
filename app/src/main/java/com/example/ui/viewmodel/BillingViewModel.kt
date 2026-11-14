@@ -677,15 +677,17 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 readingImageUri = readingImageUri,
                 createdAt = System.currentTimeMillis()
             )
-            // إصدار الفاتورة، ترحيل المتأخرات، واستهلاك الرصيد الدائن عملية واحدة.
+            // إصدار الفاتورة وترحيل المتأخرات في معاملة واحدة، دون خصم رصيد دائن.
+            val subscriberWithoutCredit = subscriber
+                ?.takeIf { it.creditBalance != 0.0 }
+                ?.copy(creditBalance = 0.0)
             db.withTransaction {
                 repository.insertBill(bill)
                 outstanding.forEach { old -> repository.markBillCarriedForward(old.id) }
-                // تصفير أي رصيد دائن قديم غير معتمد على بطاقة هذا المشترك حتى لا يظهر خصماً وهمياً لاحقاً.
-                if (subscriber != null && subscriber.creditBalance != 0.0) {
-                    db.userDao().updateUser(subscriber.copy(creditBalance = 0.0))
-                }
+                subscriberWithoutCredit?.let { db.userDao().updateUser(it) }
             }
+            // مزامنة تصفير الرصيد القديم حتى لا يعود من جهاز آخر عند المزامنة.
+            subscriberWithoutCredit?.let { localNetworkSync.saveUser(it) }
             refreshDataNow()
             outstanding.forEach { old ->
                 repository.getBillById(old.id)?.let { localNetworkSync.saveBill(it) }
