@@ -2,6 +2,8 @@ package com.example.utils
 
 import android.content.Context
 import android.net.Uri
+import android.database.sqlite.SQLiteDatabase
+import com.example.data.database.AppDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -96,52 +98,72 @@ object BackupHelper {
     }
 
     suspend fun restoreDatabase(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        val tempDir = File(context.cacheDir, "db_restore_temp")
         try {
-            val dbFile = context.getDatabasePath(DB_NAME)
-            
-            // Temporary directory for extracting
-            val tempDir = File(context.cacheDir, "db_restore_temp")
             if (tempDir.exists()) tempDir.deleteRecursively()
-            tempDir.mkdirs()
+            check(tempDir.mkdirs() || tempDir.isDirectory) { "تعذر إنشاء مجلد مؤقت للاستعادة" }
 
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                ZipInputStream(inputStream).use { zis ->
+            // استخراج ملف قاعدة البيانات فقط؛ لا نستعيد ملفات WAL/SHM القديمة.
+            var extracted = false
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                ZipInputStream(input).use { zis ->
                     var entry = zis.nextEntry
                     while (entry != null) {
-                        val outFile = File(tempDir, entry.name)
-                        FileOutputStream(outFile).use { fos ->
-                            zis.copyTo(fos)
+                        if (!entry.isDirectory && entry.name == DB_NAME) {
+                            val outFile = File(tempDir, DB_NAME)
+                            FileOutputStream(outFile).use { output -> zis.copyTo(output) }
+                            extracted = true
                         }
                         zis.closeEntry()
                         entry = zis.nextEntry
                     }
                 }
-            }
+            } ?: return@withContext false
 
-            // If we successfully extracted, replace the actual database files
-            val extractedDb = File(tempDir, DB_NAME)
-            if (extractedDb.exists()) {
-                // Delete existing db files to prevent WAL conflicts
-                dbFile.delete()
-                File(dbFile.parent, "$DB_NAME-wal").delete()
-                File(dbFile.parent, "$DB_NAME-shm").delete()
-
-                // Move extracted files
-                val filesToMove = listOf(DB_NAME, "$DB_NAME-wal", "$DB_NAME-shm")
-                for (fileName in filesToMove) {
-                    val extractedFile = File(tempDir, fileName)
-                    if (extractedFile.exists()) {
-                        extractedFile.copyTo(File(dbFile.parent, fileName), overwrite = true)
-                    }
-                }
+            val stagedDb = File(tempDir, DB_NAME)
+            if (!extracted || !stagedDb.isFile || stagedDb.length() <= 0L) {
                 tempDir.deleteRecursively()
-                return@withContext true
+                return@withContext false
             }
+
+            // فحص سلامة SQLite ورقم إصدار المخطط قبل لمس قاعدة البيانات الحالية.
+            val validationDb = SQLiteDatabase.openDatabase(
+                stagedDb.absolutePath, null, SQLiteDatabase.OPEN_READONLY
+            )
+            val isValid = try {
+                val cursor = validationDb.rawQuery("PRAGMA quick_check", null)
+                val result = cursor.use { if (it.moveToFirst()) it.getString(0) else "" }
+                result == "ok" && validationDb.version in 4..14
+            } finally {
+                validationDb.close()
+            }
+            if (!isValid) {
+                tempDir.deleteRecursively()
+                return@withContext false
+            }
+
+            val dbFile = context.getDatabasePath(DB_NAME)
+            val parent = dbFile.parentFile ?: error("مسار قاعدة البيانات غير صالح")
+            check(parent.exists() || parent.mkdirs()) { "تعذر الوصول إلى مجلد قاعدة البيانات" }
+            val replacement = File(parent, "$DB_NAME.restore")
+            stagedDb.copyTo(replacement, overwrite = true)
+
+            // إغلاق Room أولاً، ثم حذف ملفات WAL/SHM لمنع تعارضها مع النسخة المستعادة.
+            AppDatabase.closeForRestore()
+            File(parent, "$DB_NAME-wal").delete()
+            File(parent, "$DB_NAME-shm").delete()
+            if (dbFile.exists() && !dbFile.delete()) error("تعذر إغلاق ملف قاعدة البيانات القديم")
+            if (!replacement.renameTo(dbFile)) {
+                replacement.copyTo(dbFile, overwrite = true)
+                replacement.delete()
+            }
+
             tempDir.deleteRecursively()
-            return@withContext false
+            true
         } catch (e: Exception) {
             e.printStackTrace()
-            return@withContext false
+            tempDir.deleteRecursively()
+            false
         }
     }
 }
