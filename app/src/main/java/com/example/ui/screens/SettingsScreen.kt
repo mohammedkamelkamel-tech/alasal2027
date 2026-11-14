@@ -225,7 +225,14 @@ fun SettingsScreen(
                         coroutineScope.launch {
                             val success = com.example.utils.BackupHelper.restoreDatabase(context, uri)
                             if (success) {
-                                android.widget.Toast.makeText(context, "تم استعادة البيانات بنجاح، يرجى إعادة تشغيل التطبيق", android.widget.Toast.LENGTH_LONG).show()
+                                android.widget.Toast.makeText(context, "تمت الاستعادة والتحقق من قاعدة البيانات. سيعاد تشغيل التطبيق الآن", android.widget.Toast.LENGTH_LONG).show()
+                                kotlinx.coroutines.delay(900)
+                                val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                if (launchIntent != null) {
+                                    launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                    context.startActivity(launchIntent)
+                                    android.os.Process.killProcess(android.os.Process.myPid())
+                                }
                             } else {
                                 android.widget.Toast.makeText(context, "فشل استعادة البيانات", android.widget.Toast.LENGTH_SHORT).show()
                             }
