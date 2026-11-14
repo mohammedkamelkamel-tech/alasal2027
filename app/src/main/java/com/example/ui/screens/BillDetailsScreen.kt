@@ -462,7 +462,7 @@ fun BillDetailsScreen(
                     OutlinedButton(
                         onClick = {
                             onRefreshPrice(bill)
-                            Toast.makeText(context, "تم طلب تحديث سعر الفاتورة بسعر المشترك الحالي", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "جارٍ تحديث الفاتورة بسعر المشترك الحالي...", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(12.dp)
