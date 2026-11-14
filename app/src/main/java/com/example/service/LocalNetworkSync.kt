@@ -141,7 +141,7 @@ class LocalNetworkSync(
         if (adminMode) return true
         val payload = org.json.JSONObject()
             .put("type", "UPDATE_BILL_PRICE")
-            .put("bill", org.json.JSONObject(billListAdapter.toJson(listOf(bill))).getJSONObject(0))
+            .put("bill", org.json.JSONArray(billListAdapter.toJson(listOf(bill))).getJSONObject(0))
             .put("payments", org.json.JSONArray(paymentListAdapter.toJson(payments)))
         return sendOperation(payload.toString())
     }
