@@ -872,26 +872,68 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
      */
     fun refreshBillPriceFromSubscriber(bill: BillEntity) {
         viewModelScope.launch {
-            val currentBill = repository.getBillById(bill.id) ?: return@launch
-            val subscriber = repository.getUserById(currentBill.userId) ?: return@launch
-            val newPrice = subscriber.unitPrice
-            if (newPrice <= 0.0 || newPrice == currentBill.unitPrice) {
+            try {
+                val currentBill = repository.getBillById(bill.id) ?: return@launch
+                if (currentBill.status == BillStatus.CARRIED.name) {
+                    android.widget.Toast.makeText(getApplication(), "هذه الفاتورة مُرحّلة، حدّث سعر الفاتورة الحالية التي تضم متأخراتها", android.widget.Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val subscriber = repository.getUserById(currentBill.userId) ?: return@launch
+                val newPrice = subscriber.unitPrice
+                if (newPrice <= 0.0) {
+                    android.widget.Toast.makeText(getApplication(), "سعر الكيلو الحالي للمشترك غير صالح", android.widget.Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                if (newPrice == currentBill.unitPrice) {
+                    android.widget.Toast.makeText(getApplication(), "الفاتورة محدثة بالفعل بسعر المشترك الحالي", android.widget.Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val payments = db.paymentDao().getForBill(currentBill.id)
+                val paidFromReceipts = payments.sumOf { it.amount.coerceAtLeast(0.0) }
+                val paidAmount = if (payments.isNotEmpty()) paidFromReceipts else currentBill.paidAmount
+                val newSubtotal = currentBill.consumptionKwh.coerceAtLeast(0.0) * newPrice
+                val newTotal = (newSubtotal + currentBill.previousDebt).coerceAtLeast(0.0)
+                val newRemaining = (newTotal - paidAmount).coerceAtLeast(0.0)
+                val newStatus = when {
+                    newRemaining <= 0.0 -> BillStatus.PAID.name
+                    paidAmount > 0.0 -> BillStatus.PARTIAL.name
+                    else -> BillStatus.UNPAID.name
+                }
+                val updated = currentBill.copy(
+                    unitPrice = newPrice,
+                    subtotalAmount = newSubtotal,
+                    totalAmount = newTotal,
+                    paidAmount = paidAmount,
+                    remainingAmount = newRemaining,
+                    status = newStatus
+                )
+
+                var runningRemaining = newTotal
+                val updatedPayments = payments.map { payment ->
+                    val before = runningRemaining
+                    runningRemaining = (runningRemaining - payment.amount.coerceAtLeast(0.0)).coerceAtLeast(0.0)
+                    payment.copy(beforeRemaining = before, afterRemaining = runningRemaining)
+                }
+                db.withTransaction {
+                    repository.updateBill(updated)
+                    updatedPayments.forEach { db.paymentDao().update(it) }
+                }
+                val synced = localNetworkSync.updateBillPriceAndPayments(updated, updatedPayments)
                 refreshDataNow()
-                return@launch
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    if (synced) "تم تحديث سعر الفاتورة وإجماليها والمتبقي وسجل الدفعات"
+                    else "تم التحديث محلياً، وتعذرت مزامنته مع جهاز الإدارة حالياً",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            } catch (e: Exception) {
+                android.util.Log.e("BillingViewModel", "Invoice repricing failed", e)
+                android.widget.Toast.makeText(
+                    getApplication(), "تعذر تحديث الفاتورة: ${e.message ?: "خطأ غير معروف"}",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
             }
-            val newSubtotal = currentBill.consumptionKwh * newPrice
-            val newTotal = (newSubtotal + currentBill.previousDebt).coerceAtLeast(0.0)
-            val newRemaining = newTotal - currentBill.paidAmount
-            val updated = currentBill.copy(
-                unitPrice = newPrice,
-                subtotalAmount = newSubtotal,
-                totalAmount = newTotal,
-                remainingAmount = newRemaining,
-                status = if (newRemaining <= 0.0) BillStatus.PAID.name else BillStatus.UNPAID.name
-            )
-            repository.updateBill(updated)
-            localNetworkSync.saveBill(updated)
-            refreshDataNow()
         }
     }
 
