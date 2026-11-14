@@ -137,6 +137,15 @@ class LocalNetworkSync(
         return sendOperation(JSONObjectPayload.delete("bill", bill.id))
     }
 
+    suspend fun updateBillPriceAndPayments(bill: BillEntity, payments: List<PaymentEntity>): Boolean {
+        if (adminMode) return true
+        val payload = org.json.JSONObject()
+            .put("type", "UPDATE_BILL_PRICE")
+            .put("bill", org.json.JSONObject(billListAdapter.toJson(listOf(bill))).getJSONArray(0))
+            .put("payments", org.json.JSONArray(paymentListAdapter.toJson(payments)))
+        return sendOperation(payload.toString())
+    }
+
     suspend fun saveMeterReading(reading: MeterReadingEntity): Boolean {
         if (adminMode) return true
         return sendOperation(JSONObjectPayload.upsertReading(readingListAdapter.toJson(listOf(reading))))
@@ -243,6 +252,18 @@ class LocalNetworkSync(
                     snapshotJson()
                 }
                 "REGISTER_PAYMENT" -> registerPaymentOnAdmin(o)
+                "UPDATE_BILL_PRICE" -> {
+                    val billJson = o.optJSONObject("bill")
+                        ?: return org.json.JSONObject().put("ok", false).put("error", "بيانات الفاتورة غير صالحة").toString()
+                    val updatedBill = billListAdapter.fromJson(org.json.JSONArray().put(billJson).toString())?.firstOrNull()
+                        ?: return org.json.JSONObject().put("ok", false).put("error", "تعذر قراءة الفاتورة").toString()
+                    val payments = paymentListAdapter.fromJson(o.optJSONArray("payments")?.toString().orEmpty()).orEmpty()
+                    db.withTransaction {
+                        db.billDao().updateBill(updatedBill)
+                        payments.forEach { db.paymentDao().update(it) }
+                    }
+                    snapshotJson()
+                }
                 "UPSERT_READING" -> {
                     val list = readingListAdapter.fromJson(o.optString("data")).orEmpty()
                     list.forEach { db.meterReadingDao().insert(it) }
