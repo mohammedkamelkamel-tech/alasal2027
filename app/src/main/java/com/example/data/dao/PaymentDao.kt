@@ -27,6 +27,9 @@ interface PaymentDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(payments: List<PaymentEntity>)
 
+    @Query("DELETE FROM payments WHERE billId = :billId")
+    suspend fun deleteForBill(billId: String)
+
     @Query("DELETE FROM payments")
     suspend fun deleteAll()
 }
