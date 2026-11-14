@@ -634,10 +634,11 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 it.status !in listOf(BillStatus.PAID.name, BillStatus.CARRIED.name) && it.remainingAmount > 0.0
             }
             val arrears = outstanding.sumOf { it.remainingAmount }
-            val availableCredit = subscriber?.creditBalance?.coerceAtLeast(0.0) ?: 0.0
+            // لا يوجد رصيد دائن معتمد لهذا النظام؛ لا تخصم أي مبلغ من الفاتورة الجديدة.
+            // إجمالي الفاتورة يساوي الاستهلاك + المتأخرات المستحقة فقط.
             val grossTotal = subtotal + arrears
-            val creditApplied = minOf(availableCredit, grossTotal)
-            val total = (grossTotal - creditApplied).coerceAtLeast(0.0)
+            val creditApplied = 0.0
+            val total = grossTotal
             // رقم تسلسلي محفوظ دائماً، ويُقارن بأعلى رقم موجود لتفادي التكرار بعد حذف فاتورة.
             val highestStoredInvoice = repository.allBills.first()
                 .mapNotNull { it.invoiceNumber.removePrefix("#").toLongOrNull() }
@@ -680,10 +681,9 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
             db.withTransaction {
                 repository.insertBill(bill)
                 outstanding.forEach { old -> repository.markBillCarriedForward(old.id) }
-                if (creditApplied > 0.0 && subscriber != null) {
-                    db.userDao().updateUser(subscriber.copy(
-                        creditBalance = (subscriber.creditBalance - creditApplied).coerceAtLeast(0.0)
-                    ))
+                // تصفير أي رصيد دائن قديم غير معتمد على بطاقة هذا المشترك حتى لا يظهر خصماً وهمياً لاحقاً.
+                if (subscriber != null && subscriber.creditBalance != 0.0) {
+                    db.userDao().updateUser(subscriber.copy(creditBalance = 0.0))
                 }
             }
             refreshDataNow()
