@@ -120,10 +120,12 @@ object BackupHelper {
                 ZipInputStream(input).use { zis ->
                     var entry = zis.nextEntry
                     while (entry != null) {
-                        if (!entry.isDirectory && entry.name == DB_NAME) {
+                        val entryName = entry.name.replace('\\', '/').substringAfterLast('/')
+                        if (!entry.isDirectory && entryName in setOf(DB_NAME, "$DB_NAME.db", "$DB_NAME.sqlite")) {
                             val outFile = File(tempDir, DB_NAME)
                             FileOutputStream(outFile).use { output -> zis.copyTo(output) }
                             extracted = true
+                            break
                         }
                         zis.closeEntry()
                         entry = zis.nextEntry
@@ -132,6 +134,13 @@ object BackupHelper {
             } ?: return@withContext false
 
             val stagedDb = File(tempDir, DB_NAME)
+            // دعم النسخ القديمة التي تحتوي ملف SQLite مباشرة بدلاً من ZIP.
+            if (!extracted) {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(stagedDb).use { output -> input.copyTo(output) }
+                }
+                extracted = stagedDb.isFile && stagedDb.length() > 0L
+            }
             if (!extracted || !stagedDb.isFile || stagedDb.length() <= 0L) {
                 tempDir.deleteRecursively()
                 return@withContext false
