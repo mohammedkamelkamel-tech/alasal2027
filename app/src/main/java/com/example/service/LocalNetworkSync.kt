@@ -255,7 +255,23 @@ class LocalNetworkSync(
                 }
                 "DELETE" -> {
                     when (o.optString("entity")) {
-                        "bill" -> db.billDao().getBillById(o.optString("id"))?.let { db.billDao().deleteBill(it) }
+                        "bill" -> {
+                            val billId = o.optString("id")
+                            db.withTransaction {
+                                val bill = db.billDao().getBillById(billId)
+                                if (bill != null) {
+                                    db.paymentDao().deleteForBill(billId)
+                                    val readings = db.meterReadingDao().getForUser(bill.userId)
+                                    val linkedReading = readings
+                                        .filter { kotlin.math.abs(it.previousReading - bill.prevReading) < 0.001 }
+                                        .filter { kotlin.math.abs(it.currentReading - bill.currentReading) < 0.001 }
+                                        .filter { bill.readingDate.isBlank() || it.readingDate == bill.readingDate }
+                                        .maxByOrNull { it.createdAt }
+                                    linkedReading?.let { db.meterReadingDao().deleteById(it.id) }
+                                    db.billDao().deleteBill(bill)
+                                }
+                            }
+                        }
                         "user" -> db.userDao().getUserById(o.optString("id"))?.let { db.userDao().deleteUser(it) }
                     }
                     snapshotJson()
