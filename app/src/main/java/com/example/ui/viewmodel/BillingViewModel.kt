@@ -785,35 +785,24 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
     fun deleteBill(bill: BillEntity) {
         viewModelScope.launch {
             try {
-                if (repository.getPaymentsForBill(bill.id).isNotEmpty()) {
-                    android.widget.Toast.makeText(
-                        getApplication(),
-                        "ممنوع حذف الفاتورة لأنها تحتوي على سجل تحصيل. احتفظ بها لحماية سجل الإيصالات.",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                    return@launch
-                }
                 db.withTransaction {
-                    // فحص داخل المعاملة أيضاً؛ ويظل trigger قاعدة البيانات هو الحماية النهائية.
-                    check(repository.getPaymentsForBill(bill.id).isEmpty()) {
-                        "لا يمكن حذف فاتورة لها تحصيلات"
-                    }
-                    if (bill.paidAmount <= 0.0 && bill.status != BillStatus.CARRIED.name) {
-                        val readings = db.meterReadingDao().getForUser(bill.userId)
-                        val linkedReading = readings
-                            .filter { kotlin.math.abs(it.previousReading - bill.prevReading) < 0.001 }
-                            .filter { kotlin.math.abs(it.currentReading - bill.currentReading) < 0.001 }
-                            .filter { bill.readingDate.isBlank() || it.readingDate == bill.readingDate }
-                            .maxByOrNull { it.createdAt }
-                        if (linkedReading != null) repository.deleteMeterReading(linkedReading.id)
-                    }
+                    // حذف كل السجلات التابعة للفاتورة في معاملة واحدة:
+                    // إيصالات التحصيل، قراءة العداد المرتبطة، ثم الفاتورة نفسها.
+                    db.paymentDao().deleteForBill(bill.id)
+                    val readings = db.meterReadingDao().getForUser(bill.userId)
+                    val linkedReading = readings
+                        .filter { kotlin.math.abs(it.previousReading - bill.prevReading) < 0.001 }
+                        .filter { kotlin.math.abs(it.currentReading - bill.currentReading) < 0.001 }
+                        .filter { bill.readingDate.isBlank() || it.readingDate == bill.readingDate }
+                        .maxByOrNull { it.createdAt }
+                    if (linkedReading != null) repository.deleteMeterReading(linkedReading.id)
                     repository.deleteBill(bill)
                 }
                 refreshDataNow()
                 localNetworkSync.deleteBill(bill)
                 selectedBill.value = null
                 android.widget.Toast.makeText(
-                    getApplication(), "تم حذف الفاتورة", android.widget.Toast.LENGTH_SHORT
+                    getApplication(), "تم حذف الفاتورة وكل إيصالاتها وقراءة العداد المرتبطة بها", android.widget.Toast.LENGTH_SHORT
                 ).show()
             } catch (e: Exception) {
                 android.util.Log.e("BillingViewModel", "Bill deletion blocked/failed", e)
