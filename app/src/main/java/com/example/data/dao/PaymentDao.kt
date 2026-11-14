@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.example.data.model.PaymentEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -20,6 +21,9 @@ interface PaymentDao {
 
     @Query("SELECT COALESCE(MAX(receiptNumber), 0) + 1 FROM payments")
     suspend fun nextReceiptNumber(): Long
+
+    @Update
+    suspend fun update(payment: PaymentEntity)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(payment: PaymentEntity): Long
